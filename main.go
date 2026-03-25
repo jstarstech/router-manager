@@ -147,20 +147,41 @@ func main() {
 
 		if len(res.Re) == 1 {
 			maps.Copy(leasweInfo, res.Re[0].Map)
-
-			json.NewEncoder(w).Encode(map[string]any{
-				"status": "ok",
-				"data": map[string]any{
-					"user-ip": userIP,
-					"lease":   leasweInfo,
-				},
-			})
 		} else {
 			json.NewEncoder(w).Encode(map[string]any{
 				"status":  "error",
 				"message": "ip not found",
 			})
+
+			return
 		}
+
+		resBridgeHost, err := rosClient.RunArgs(strings.Split("/interface/bridge/host/print where ?mac-address="+leasweInfo["active-mac-address"], " "))
+		if err != nil {
+			log.Println("Operation failed", err)
+
+			json.NewEncoder(w).Encode(map[string]any{
+				"status":  "error",
+				"message": "erorr running command",
+			})
+
+			return
+		}
+
+		bridgePort := ""
+
+		if len(resBridgeHost.Re) == 1 {
+			bridgePort = resBridgeHost.Re[0].Map["on-interface"]
+		}
+
+		json.NewEncoder(w).Encode(map[string]any{
+			"status": "ok",
+			"data": map[string]any{
+				"user-ip":     userIP,
+				"bridge-port": bridgePort,
+				"lease":       leasweInfo,
+			},
+		})
 	})
 
 	mux.HandleFunc("/api/dhcp-make-static", func(w http.ResponseWriter, r *http.Request) {

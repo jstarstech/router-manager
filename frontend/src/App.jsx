@@ -105,8 +105,16 @@ function HealthStatusBar({ promise, ipInfoPromise, makeIPStatic = () => {} }) {
             {ipInfoResponse.data["lease"]["active-agent-circuit-id"] && (
               <>
                 <p>
-                  <StatusDot ok={true} /> Ethrnet Port:{" "}
-                  {ipInfoResponse.data["lease"]["active-agent-circuit-id"]}
+                  <StatusDot ok={true} /> Bridge Port:{" "}
+                  <span className="text-rust">
+                    {ipInfoResponse.data["bridge-port"]}
+                  </span>
+                </p>
+                <p>
+                  <StatusDot ok={true} /> Active agent circuit id:{" "}
+                  <span className="text-rust">
+                    {ipInfoResponse.data["lease"]["active-agent-circuit-id"]}
+                  </span>
                 </p>
               </>
             )}

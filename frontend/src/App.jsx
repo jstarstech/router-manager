@@ -70,7 +70,7 @@ function StatusDot({ ok }) {
   );
 }
 
-function HealthStatusBar({ promise, ipInfoPromise }) {
+function HealthStatusBar({ promise, ipInfoPromise, makeIPStatic = () => {} }) {
   const response = use(promise);
   const ipInfoResponse = use(ipInfoPromise);
   const isOk = response?.status === "ok";
@@ -78,7 +78,6 @@ function HealthStatusBar({ promise, ipInfoPromise }) {
 
   return (
     <div className="flex items-center gap-2 mb-6">
-      <StatusDot ok={isOk} />
       <span
         className="font-mono text-xs"
         style={{
@@ -88,28 +87,52 @@ function HealthStatusBar({ promise, ipInfoPromise }) {
         {isOk ? (
           <>
             <p>
-              Uptime: {formatDurationToDaysTime(data.uptime)} · Version:{" "}
-              {data.version}
+              {data.platform} {data["board-name"]} ({data["architecture-name"]})
+              · Software : {data.version}
             </p>
-            {ipInfoResponse?.status === "ok" ? (
+            <p>&nbsp;</p>
+            <p>
+              <StatusDot ok={isOk} /> Uptime:{" "}
+              {formatDurationToDaysTime(data.uptime)}
+            </p>
+          </>
+        ) : (
+          <p>Error fetching status</p>
+        )}
+
+        {ipInfoResponse?.status === "ok" ? (
+          <>
+            {ipInfoResponse.data["lease"]["active-agent-circuit-id"] && (
               <>
                 <p>
-                  IP: {ipInfoResponse.data["user-ip"]} DHCP:{" "}
-                  {ipInfoResponse.data["lease"]["dynamic"] === "false"
-                    ? "static"
-                    : "dynamic"}
-                </p>
-                <p>
-                  Port:{" "}
+                  <StatusDot ok={true} /> Ethrnet Port:{" "}
                   {ipInfoResponse.data["lease"]["active-agent-circuit-id"]}
                 </p>
               </>
-            ) : (
-              <p>Error fetching IP info</p>
             )}
+            <p>
+              {ipInfoResponse.data["lease"]["dynamic"] === "false" ? (
+                <>
+                  <StatusDot ok={true} /> DHCP Lease: static
+                </>
+              ) : (
+                <>
+                  <StatusDot ok={false} /> DHCP Lease: dynamic{" "}
+                  <span
+                    className="cursor-pointer hover:text-rust"
+                    onClick={makeIPStatic}
+                  >
+                    [make static]
+                  </span>
+                </>
+              )}
+            </p>
+            <p>
+              <StatusDot ok={true} /> IP: {ipInfoResponse.data["user-ip"]}
+            </p>
           </>
         ) : (
-          <p>Server error</p>
+          <p>Error fetching IP info</p>
         )}
       </span>
     </div>
@@ -177,8 +200,20 @@ export default function App() {
     };
   }, []);
 
-  const handleGreet = (e) => {
-    e.preventDefault();
+  const makeIPStatic = async () => {
+    try {
+      const response = await fetchJSON("/api/dhcp-make-static");
+
+      if (response.status === "ok") {
+        startTransition(() => {
+          setIpInfoPromise(fetchJSON("/api/ip-info"));
+        });
+      } else {
+        alert("Failed to make IP address static " + response.message);
+      }
+    } catch (error) {
+      alert("Error making IP address static: " + error.message);
+    }
   };
 
   const fadeUp = (delay = 0) => ({
@@ -233,6 +268,7 @@ export default function App() {
             <HealthStatusBar
               promise={healthPromise}
               ipInfoPromise={ipInfoPromise}
+              makeIPStatic={makeIPStatic}
             />
           </Suspense>
         </header>

@@ -11,6 +11,7 @@ import (
 	"maps"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"strings"
 
@@ -160,6 +161,105 @@ func main() {
 				"message": "ip not found",
 			})
 		}
+	})
+
+	mux.HandleFunc("/api/dhcp-make-static", func(w http.ResponseWriter, r *http.Request) {
+		userIP, _, _ := net.SplitHostPort(r.RemoteAddr)
+
+		addr, err := netip.ParseAddr(userIP)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"status":  "error",
+				"message": "Invalid IP address format",
+			})
+			return
+		}
+
+		if !addr.Is4() {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"status":  "error",
+				"message": "Invalid IP address family",
+			})
+			return
+		}
+
+		res1, err := rosClient.RunArgs(strings.Split("/ip/dhcp-server/lease/print where ?address="+userIP, " "))
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"status":  "error",
+				"message": "Failed to find lease to make static",
+			})
+			return
+		}
+
+		leaseId := ""
+		leaseDynamic := ""
+
+		if len(res1.Re) == 1 {
+			leaseId = res1.Re[0].Map[".id"]
+			leaseDynamic = res1.Re[0].Map["dynamic"]
+		}
+
+		if leaseId == "" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"status":  "error",
+				"message": "Lease not found",
+			})
+			return
+		}
+
+		if leaseDynamic == "false" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"status":  "error",
+				"message": "Lease is not dynamic",
+			})
+			return
+		}
+
+		_, err = rosClient.RunArgs(strings.Split("/ip/dhcp-server/lease/make-static =.id="+leaseId, " "))
+		if err != nil {
+			log.Println("Operation failed", err)
+
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"status":  "error",
+				"message": "Failed to make lease static",
+			})
+			return
+		}
+
+		res, err := rosClient.RunArgs(strings.Split("/ip/dhcp-server/lease/print where ?dynamic=no and ?address="+userIP, " "))
+		if err != nil {
+			http.Error(w, "Failed to print lease", http.StatusInternalServerError)
+
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"status":  "error",
+				"message": "Failed to validate lease static",
+			})
+			return
+		}
+
+		if len(res.Re) == 0 {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"status":  "error",
+				"message": "Failed to validate lease static (not found)",
+			})
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"status":  "ok",
+			"message": "Lease made static",
+		})
+
 	})
 
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {

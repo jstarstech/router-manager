@@ -37,6 +37,8 @@ type Config struct {
 //go:embed dist
 var staticFiles embed.FS
 
+var Version = "dev-build"
+
 func dial(config Config) (*routeros.Client, error) {
 	if config.Router.UseTLS {
 		return routeros.DialTLS(fmt.Sprintf("%s:%d", config.Router.Host, config.Router.Port), config.Router.Username, config.Router.Password, nil)
@@ -315,6 +317,7 @@ func main() {
 		})
 	})
 
+	log.Printf("Router Manager %s", Version)
 	log.Printf("Server listening on http://%s:%d", config.Server.Host, config.Server.Port)
 
 	if err := http.ListenAndServe(fmt.Sprintf("%s:%d", config.Server.Host, config.Server.Port), mux); err != nil {

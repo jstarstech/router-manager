@@ -37,22 +37,24 @@ jobs:
 
       - name: Build Go Binaries
         run: |
-          LDFLAGS="-s -w"
+          LDFLAGS="-s -w -X 'main.Version=${{ env.VERSION }}'"
+
+          mkdir -p release
 
           # Linux
-          GOOS=linux GOARCH=amd64 go build -o release/router-manager-$VERSION-linux-amd64
-          GOOS=linux GOARCH=arm64 go build -o release/router-manager-$VERSION-linux-arm64
-          GOOS=linux GOARCH=arm GOARM=7 go build -o release/router-manager-$VERSION-linux-armv7
-          GOOS=linux GOARCH=arm GOARM=6 go build -o release/router-manager-$VERSION-linux-armv6
+          GOOS=linux GOARCH=amd64 go build -ldflags="$LDFLAGS" -o release/router-manager-$VERSION-linux-amd64
+          GOOS=linux GOARCH=arm64 go build -ldflags="$LDFLAGS" -o release/router-manager-$VERSION-linux-arm64
+          GOOS=linux GOARCH=arm GOARM=7 go build -ldflags="$LDFLAGS" -o release/router-manager-$VERSION-linux-armv7
+          GOOS=linux GOARCH=arm GOARM=6 go build -ldflags="$LDFLAGS" -o release/router-manager-$VERSION-linux-armv6
 
           # Windows
-          GOOS=windows GOARCH=amd64 go build -o release/router-manager-$VERSION-windows-amd64.exe
-          GOOS=windows GOARCH=arm64 go build -o release/router-manager-$VERSION-windows-arm64.exe
-          GOOS=windows GOARCH=386 go build -o release/router-manager-$VERSION-windows-x86.exe
+          GOOS=windows GOARCH=amd64 go build -ldflags="$LDFLAGS" -o release/router-manager-$VERSION-windows-amd64.exe
+          GOOS=windows GOARCH=arm64 go build -ldflags="$LDFLAGS" -o release/router-manager-$VERSION-windows-arm64.exe
+          GOOS=windows GOARCH=386 go build -ldflags="$LDFLAGS" -o release/router-manager-$VERSION-windows-x86.exe
 
           # macOS
-          GOOS=darwin GOARCH=amd64 go build -o release/router-manager-$VERSION-darwin-amd64
-          GOOS=darwin GOARCH=arm64 go build -o release/router-manager-$VERSION-darwin-arm64
+          GOOS=darwin GOARCH=amd64 go build -ldflags="$LDFLAGS" -o release/router-manager-$VERSION-darwin-amd64
+          GOOS=darwin GOARCH=arm64 go build -ldflags="$LDFLAGS" -o release/router-manager-$VERSION-darwin-arm64
 
       - name: Create Release
         uses: softprops/action-gh-release@v2

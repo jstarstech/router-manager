@@ -34,7 +34,7 @@ type Config struct {
 	} `mapstructure:"router"`
 }
 
-//go:embed dist
+//go:embed frontend/dist
 var staticFiles embed.FS
 
 var Version = "dev-build"
@@ -111,7 +111,7 @@ func main() {
 	mux := http.NewServeMux()
 
 	// Serve embedded static files (React build)
-	distFS, err := fs.Sub(staticFiles, "dist")
+	distFS, err := fs.Sub(staticFiles, "frontend/dist")
 	if err != nil {
 		log.Println("Failed to create sub filesystem:", err)
 	}

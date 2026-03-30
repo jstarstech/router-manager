@@ -159,6 +159,69 @@ function HealthStatusBar({ promise, ipInfoPromise, makeIPStatic = () => {} }) {
   );
 }
 
+function IPRuleTable() {
+  const [resRule, setRes] = useState(null);
+  const [resTables, setTables] = useState(null);
+  const [selectedTable, setSelectedTable] = useState("");
+
+  const tables = resTables?.data || [];
+
+  useEffect(() => {
+    async function poll() {
+      const [_resRule, _resTables] = await Promise.all([
+        fetchJSON("/api/ip-rule"),
+        fetchJSON("/api/ip-rule-tables"),
+      ]);
+
+      setRes(_resRule);
+      setSelectedTable(_resRule.data?.table || "");
+      setTables(_resTables);
+    }
+    poll();
+  }, []);
+
+  const changeTable = async (e) => {
+    const value = e.target.value;
+
+    const res = await fetchJSON("/api/ip-rule", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ table: value, ".id": resRule?.data?.[".id"] }),
+    });
+
+    if (res.status === "ok") {
+      setSelectedTable(value);
+    }
+  };
+
+  if (resRule?.status === "ok" && resRule?.data && resRule.data?.table) {
+    return (
+      <div className="px-2 py-4 border border-rust/10 rounded">
+        <span className="inline-block mr-4">Active route table:</span>
+        <select
+          className="bg-ink text-rust border border-rust/30 active:border-rust/30 focus:border-rust/30 outline-none rounded px-2 py-1 text-sm"
+          value={selectedTable}
+          onChange={changeTable}
+        >
+          {tables.map((table) => (
+            <option
+              className="dark:bg-red"
+              key={table["name"]}
+              value={table["name"]}
+            >
+              {table.name}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
+  }
+
+  return <></>;
+}
+
 function LoadingFallback() {
   return (
     <div
@@ -265,7 +328,7 @@ export default function App() {
       />
 
       <div className="relative max-w-3xl mx-auto px-6 py-16">
-        <header className="mb-16" style={fadeUp(0)}>
+        <header className="mb-8" style={fadeUp(0)}>
           <h1
             className="text-2xl md:text-4xl leading-none mb-4 tracking-tight"
             style={{ fontFamily: "var(--font-display)" }}
@@ -292,6 +355,10 @@ export default function App() {
             />
           </Suspense>
         </header>
+
+        <section>
+          <IPRuleTable />
+        </section>
 
         <footer
           className="mt-16 pt-8"

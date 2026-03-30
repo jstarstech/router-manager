@@ -128,6 +128,120 @@ func main() {
 		fileServer.ServeHTTP(w, r)
 	})
 
+	mux.HandleFunc("/api/ip-rule-tables", func(w http.ResponseWriter, r *http.Request) {
+		res, err := rosClient.RunArgs(strings.Split("/routing/table/print", " "))
+
+		if err != nil {
+			log.Println("Operation failed", err)
+
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"status":  "error",
+				"message": "erorr running command",
+			})
+
+			return
+		}
+
+		ipRuleTables := []map[string]string{}
+
+		for _, v := range res.Re {
+			ipRuleTables = append(ipRuleTables, v.Map)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"status": "ok",
+			"data":   ipRuleTables,
+		})
+	})
+
+	mux.HandleFunc("/api/ip-rule", func(w http.ResponseWriter, r *http.Request) {
+		userIP, _, _ := net.SplitHostPort(r.RemoteAddr)
+
+		if r.Method == http.MethodPost {
+			var data map[string]string
+			err := json.NewDecoder(r.Body).Decode(&data)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			defer r.Body.Close()
+
+			if data["table"] == "" || data[".id"] == "" {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]any{
+					"status":  "error",
+					"message": "table is required",
+				})
+				return
+			}
+
+			_, err = rosClient.RunArgs(strings.Split("/routing/rule/set =.id="+data[".id"]+" =table="+data["table"], " "))
+			if err != nil {
+				log.Println("Operation failed", err)
+
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]any{
+					"status":  "error",
+					"message": "Failed to make lease static",
+				})
+				return
+			}
+
+		}
+
+		res, err := rosClient.RunArgs(strings.Split("/routing/rule/print", " "))
+		if err != nil {
+			log.Println("Operation failed", err)
+
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"status":  "error",
+				"message": "erorr running command",
+			})
+
+			return
+		}
+
+		var ipRule map[string]any
+
+		for _, v := range res.Re {
+			if v.Map["src-address"] == userIP+"/32" &&
+				v.Map["action"] == "lookup" &&
+				v.Map["dst-address"] == "" &&
+				v.Map["interface"] == "" &&
+				v.Map["routing-mark"] == "" &&
+				v.Map["chain"] == "" {
+
+				ipRule = map[string]any{
+					".id":         v.Map[".id"],
+					"src-address": v.Map["src-address"],
+					"disabled":    v.Map["disabled"],
+					"table":       v.Map["table"],
+				}
+
+				break
+			}
+		}
+
+		if ipRule != nil {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"status": "ok",
+				"data":   ipRule,
+			})
+
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"status": "ok",
+			"data":   nil,
+		})
+	})
+
 	mux.HandleFunc("/api/ip-info", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 

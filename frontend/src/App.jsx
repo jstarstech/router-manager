@@ -141,7 +141,18 @@ function HealthStatusBar({ promise, ipInfoPromise, makeIPStatic = () => {} }) {
             </p>
           </>
         ) : (
-          <p>Error fetching IP info</p>
+          <>
+            {ipInfoResponse?.status === "error" &&
+            ipInfoResponse.message === "ip not found" ? (
+              <p>
+                <StatusDot ok={false} /> DHCP server not running
+              </p>
+            ) : (
+              <p>
+                <StatusDot ok={false} /> Error fetching IP info
+              </p>
+            )}
+          </>
         )}
       </span>
     </div>

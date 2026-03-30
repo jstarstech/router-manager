@@ -137,7 +137,7 @@ func main() {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]any{
 				"status":  "error",
-				"message": "erorr running command",
+				"message": "error running command",
 			})
 
 			return
@@ -198,7 +198,7 @@ func main() {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]any{
 				"status":  "error",
-				"message": "erorr running command",
+				"message": "error running command",
 			})
 
 			return
@@ -253,7 +253,7 @@ func main() {
 
 			json.NewEncoder(w).Encode(map[string]any{
 				"status":  "error",
-				"message": "erorr running command",
+				"message": "error running command",
 			})
 
 			return
@@ -278,7 +278,7 @@ func main() {
 
 			json.NewEncoder(w).Encode(map[string]any{
 				"status":  "error",
-				"message": "erorr running command",
+				"message": "error running command",
 			})
 
 			return
@@ -410,7 +410,7 @@ func main() {
 
 			json.NewEncoder(w).Encode(map[string]any{
 				"status":  "ok",
-				"message": "erorr running command",
+				"message": "error running command",
 			})
 
 			return

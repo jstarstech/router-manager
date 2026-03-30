@@ -95,6 +95,10 @@ function HealthStatusBar({ promise, ipInfoPromise, makeIPStatic = () => {} }) {
               <StatusDot ok={isOk} /> Uptime:{" "}
               {formatDurationToDaysTime(data.uptime)}
             </p>
+
+            <p>
+              <StatusDot ok={true} /> IP: {response.data["user-ip"]}
+            </p>
           </>
         ) : (
           <p>Error fetching status</p>
@@ -134,9 +138,6 @@ function HealthStatusBar({ promise, ipInfoPromise, makeIPStatic = () => {} }) {
                   </span>
                 </>
               )}
-            </p>
-            <p>
-              <StatusDot ok={true} /> IP: {ipInfoResponse.data["user-ip"]}
             </p>
           </>
         ) : (

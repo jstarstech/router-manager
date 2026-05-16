@@ -435,7 +435,7 @@ function AppContent({
               </em>
             </h1>
             <div className="font-mono text-[10px] opacity-20 uppercase tracking-[0.2em]">
-              v{version}
+              {version}
             </div>
           </div>
 

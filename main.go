@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"flag"
@@ -15,6 +16,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/go-routeros/routeros/v3"
 	"github.com/spf13/viper"
@@ -83,6 +85,155 @@ func (m *RouterManager) RunArgs(args []string) (*routeros.Reply, error) {
 		return nil, err
 	}
 	return client.RunArgs(args)
+}
+
+type CacheManager struct {
+	router *RouterManager
+	mu     sync.RWMutex
+
+	Health       map[string]string
+	Leases       []map[string]string
+	RoutingTables []map[string]string
+	RoutingRules  []map[string]string
+	BridgeHosts   map[string]string // MAC -> Interface
+}
+
+func NewCacheManager(router *RouterManager) *CacheManager {
+	return &CacheManager{
+		router:      router,
+		Health:      make(map[string]string),
+		BridgeHosts: make(map[string]string),
+	}
+}
+
+func (c *CacheManager) StartPolling(ctx context.Context) {
+	// Fast poll for health/resources
+	go func() {
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				c.updateHealth()
+			}
+		}
+	}()
+
+	// Medium poll for state
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				c.updateLeases()
+				c.updateRouting()
+				c.updateBridgeHosts()
+			}
+		}
+	}()
+
+	// Initial fetch
+	c.updateHealth()
+	c.updateLeases()
+	c.updateRouting()
+	c.updateBridgeHosts()
+}
+
+func (c *CacheManager) updateHealth() {
+	res, err := c.router.RunArgs([]string{"/system/resource/print"})
+	if err != nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(res.Re) > 0 {
+		maps.Copy(c.Health, res.Re[0].Map)
+	}
+}
+
+func (c *CacheManager) updateLeases() {
+	res, err := c.router.RunArgs([]string{"/ip/dhcp-server/lease/print"})
+	if err != nil {
+		return
+	}
+	var leases []map[string]string
+	for _, re := range res.Re {
+		leases = append(leases, re.Map)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.Leases = leases
+}
+
+func (c *CacheManager) updateRouting() {
+	resTables, err1 := c.router.RunArgs([]string{"/routing/table/print"})
+	resRules, err2 := c.router.RunArgs([]string{"/routing/rule/print"})
+
+	if err1 != nil || err2 != nil {
+		return
+	}
+
+	var tables []map[string]string
+	for _, re := range resTables.Re {
+		tables = append(tables, re.Map)
+	}
+
+	var rules []map[string]string
+	for _, re := range resRules.Re {
+		rules = append(rules, re.Map)
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.RoutingTables = tables
+	c.RoutingRules = rules
+}
+
+func (c *CacheManager) updateBridgeHosts() {
+	res, err := c.router.RunArgs([]string{"/interface/bridge/host/print"})
+	if err != nil {
+		return
+	}
+	hosts := make(map[string]string)
+	for _, re := range res.Re {
+		mac := re.Map["mac-address"]
+		if mac != "" {
+			hosts[mac] = re.Map["on-interface"]
+		}
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.BridgeHosts = hosts
+}
+
+func (c *CacheManager) GetIPInfo(userIP string) (map[string]string, string, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	var lease map[string]string
+	for _, l := range c.Leases {
+		if l["address"] == userIP {
+			lease = l
+			break
+		}
+	}
+
+	if lease == nil {
+		return nil, "", false
+	}
+
+	mac := lease["active-mac-address"]
+	if mac == "" {
+		mac = lease["mac-address"]
+	}
+
+	bridgePort := c.BridgeHosts[mac]
+	return lease, bridgePort, true
 }
 
 //go:embed frontend/dist
@@ -175,6 +326,8 @@ func main() {
 	slogger := slog.New(handler)
 
 	router := NewRouterManager(config, handler)
+	cache := NewCacheManager(router)
+	cache.StartPolling(context.Background())
 
 	mux := http.NewServeMux()
 
@@ -203,23 +356,13 @@ func main() {
 			return
 		}
 
-		res, err := router.RunArgs([]string{"/routing/table/print"})
-
-		if err != nil {
-			log.Println("Operation failed", err)
-			writeJSONError(w, http.StatusBadGateway, "error running command")
-			return
-		}
-
-		ipRuleTables := []map[string]string{}
-
-		for _, v := range res.Re {
-			ipRuleTables = append(ipRuleTables, v.Map)
-		}
+		cache.mu.RLock()
+		tables := cache.RoutingTables
+		cache.mu.RUnlock()
 
 		writeJSON(w, http.StatusOK, map[string]any{
 			"status": "ok",
-			"data":   ipRuleTables,
+			"data":   tables,
 		})
 	})
 
@@ -252,30 +395,29 @@ func main() {
 				writeJSONError(w, http.StatusBadGateway, "failed to update rule")
 				return
 			}
+			// Trigger immediate update
+			go cache.updateRouting()
 		}
 
-		res, err := router.RunArgs([]string{"/routing/rule/print"})
-		if err != nil {
-			log.Println("Operation failed", err)
-			writeJSONError(w, http.StatusBadGateway, "error running command")
-			return
-		}
+		cache.mu.RLock()
+		allRules := cache.RoutingRules
+		cache.mu.RUnlock()
 
 		var ipRule map[string]any
 
-		for _, v := range res.Re {
-			if v.Map["src-address"] == userIP+"/32" &&
-				v.Map["action"] == "lookup" &&
-				v.Map["dst-address"] == "" &&
-				v.Map["interface"] == "" &&
-				v.Map["routing-mark"] == "" &&
-				v.Map["chain"] == "" {
+		for _, v := range allRules {
+			if v["src-address"] == userIP+"/32" &&
+				v["action"] == "lookup" &&
+				v["dst-address"] == "" &&
+				v["interface"] == "" &&
+				v["routing-mark"] == "" &&
+				v["chain"] == "" {
 
 				ipRule = map[string]any{
-					".id":         v.Map[".id"],
-					"src-address": v.Map["src-address"],
-					"disabled":    v.Map["disabled"],
-					"table":       v.Map["table"],
+					".id":         v[".id"],
+					"src-address": v["src-address"],
+					"disabled":    v["disabled"],
+					"table":       v["table"],
 				}
 
 				break
@@ -306,18 +448,8 @@ func main() {
 
 		userIP := requestUserIP(r)
 
-		res, err := router.RunArgs([]string{"/ip/dhcp-server/lease/print", "?address=" + userIP})
-		if err != nil {
-			log.Println("Operation failed", err)
-			writeJSONError(w, http.StatusBadGateway, "error running command")
-			return
-		}
-
-		leaseInfo := make(map[string]string)
-
-		if len(res.Re) >= 1 {
-			maps.Copy(leaseInfo, res.Re[0].Map)
-		} else {
+		lease, bridgePort, ok := cache.GetIPInfo(userIP)
+		if !ok {
 			log.Printf("No lease found for IP: %s", userIP)
 			writeJSON(w, http.StatusNotFound, map[string]any{
 				"status":  "error",
@@ -329,27 +461,12 @@ func main() {
 			return
 		}
 
-		bridgePort := ""
-		macAddr := leaseInfo["active-mac-address"]
-		if macAddr == "" {
-			macAddr = leaseInfo["mac-address"]
-		}
-
-		if macAddr != "" {
-			resBridgeHost, err := router.RunArgs([]string{"/interface/bridge/host/print", "?mac-address=" + macAddr})
-			if err == nil && len(resBridgeHost.Re) >= 1 {
-				bridgePort = resBridgeHost.Re[0].Map["on-interface"]
-			} else if err != nil {
-				log.Println("Bridge host lookup failed", err)
-			}
-		}
-
 		writeJSON(w, http.StatusOK, map[string]any{
 			"status": "ok",
 			"data": map[string]any{
 				"user-ip":     userIP,
 				"bridge-port": bridgePort,
-				"lease":       leaseInfo,
+				"lease":       lease,
 			},
 		})
 	})
@@ -374,24 +491,15 @@ func main() {
 			return
 		}
 
-		res1, err := router.RunArgs([]string{"/ip/dhcp-server/lease/print", "?address=" + userIP})
-		if err != nil {
-			writeJSONError(w, http.StatusBadGateway, "failed to find lease to make static")
-			return
-		}
-
-		leaseId := ""
-		leaseDynamic := ""
-
-		if len(res1.Re) >= 1 {
-			leaseId = res1.Re[0].Map[".id"]
-			leaseDynamic = res1.Re[0].Map["dynamic"]
-		}
-
-		if leaseId == "" {
+		// Use cache for existence check
+		lease, _, ok := cache.GetIPInfo(userIP)
+		if !ok {
 			writeJSONError(w, http.StatusNotFound, "lease not found")
 			return
 		}
+
+		leaseId := lease[".id"]
+		leaseDynamic := lease["dynamic"]
 
 		if leaseDynamic == "false" {
 			writeJSONError(w, http.StatusConflict, "lease is not dynamic")
@@ -405,14 +513,11 @@ func main() {
 			return
 		}
 
-		res, err := router.RunArgs([]string{"/ip/dhcp-server/lease/print", "?address=" + userIP})
-		if err != nil {
-			log.Println("Operation failed", err)
-			writeJSONError(w, http.StatusBadGateway, "failed to validate lease static")
-			return
-		}
+		// Trigger immediate update and verify
+		cache.updateLeases()
 
-		if len(res.Re) == 0 || res.Re[0].Map["dynamic"] == "true" {
+		lease, _, ok = cache.GetIPInfo(userIP)
+		if !ok || lease["dynamic"] == "true" {
 			writeJSONError(w, http.StatusInternalServerError, "failed to validate lease static")
 			return
 		}
@@ -432,18 +537,10 @@ func main() {
 
 		userIP := requestUserIP(r)
 
-		r1, err := router.RunArgs([]string{"/system/resource/print"})
-		if err != nil {
-			log.Println("Operation failed", err)
-			writeJSONError(w, http.StatusBadGateway, "error running command")
-			return
-		}
-
+		cache.mu.RLock()
 		info := make(map[string]string)
-
-		for _, re := range r1.Re {
-			maps.Copy(info, re.Map)
-		}
+		maps.Copy(info, cache.Health)
+		cache.mu.RUnlock()
 
 		writeJSON(w, http.StatusOK, map[string]any{
 			"status": "ok",

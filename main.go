@@ -91,6 +91,7 @@ type CacheManager struct {
 	router *RouterManager
 	mu     sync.RWMutex
 
+	Connected    bool
 	Health       map[string]string
 	Leases       []map[string]string
 	RoutingTables []map[string]string
@@ -101,6 +102,7 @@ type CacheManager struct {
 func NewCacheManager(router *RouterManager) *CacheManager {
 	return &CacheManager{
 		router:      router,
+		Connected:   false,
 		Health:      make(map[string]string),
 		BridgeHosts: make(map[string]string),
 	}
@@ -146,11 +148,15 @@ func (c *CacheManager) StartPolling(ctx context.Context) {
 
 func (c *CacheManager) updateHealth() {
 	res, err := c.router.RunArgs([]string{"/system/resource/print"})
-	if err != nil {
-		return
-	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	if err != nil {
+		c.Connected = false
+		return
+	}
+
+	c.Connected = true
 	if len(res.Re) > 0 {
 		maps.Copy(c.Health, res.Re[0].Map)
 	}
@@ -540,11 +546,13 @@ func main() {
 		cache.mu.RLock()
 		info := make(map[string]string)
 		maps.Copy(info, cache.Health)
+		isConnected := cache.Connected
 		cache.mu.RUnlock()
 
 		writeJSON(w, http.StatusOK, map[string]any{
-			"status":  "ok",
-			"version": Version,
+			"status":    "ok",
+			"version":   Version,
+			"connected": isConnected,
 			"data": map[string]any{
 				"user-ip": userIP,
 				"info":    info,

@@ -105,7 +105,12 @@ function DataCard({ title, children, icon }) {
   );
 }
 
-function HealthStatusBar({ promise, ipInfoPromise, makeIPStatic = () => {} }) {
+function HealthStatusBar({
+  promise,
+  ipInfoPromise,
+  makeIPStatic = () => {},
+  isConnected,
+}) {
   const response = use(promise);
   const ipInfoResponse = use(ipInfoPromise);
   const isOk = response?.status === "ok";
@@ -131,7 +136,7 @@ function HealthStatusBar({ promise, ipInfoPromise, makeIPStatic = () => {} }) {
               Arch: {data["architecture-name"]} · Soft: {data.version}
             </p>
             <p className="pt-2 flex items-center">
-              <StatusDot ok={isOk} />
+              <StatusDot ok={isOk && isConnected} />
               <span className="opacity-60 mr-1 text-[10px] uppercase">
                 Uptime:
               </span>
@@ -150,7 +155,7 @@ function HealthStatusBar({ promise, ipInfoPromise, makeIPStatic = () => {} }) {
       <DataCard title="Client Connection">
         <div className="space-y-2">
           <p className="flex items-center">
-            <StatusDot ok={true} />
+            <StatusDot ok={isConnected} />
             <span className="opacity-60 mr-1 text-[10px] uppercase">IP:</span>
             <span className="text-paper/90 select-all font-bold tracking-tight">
               {userIP}
@@ -161,7 +166,7 @@ function HealthStatusBar({ promise, ipInfoPromise, makeIPStatic = () => {} }) {
             <>
               {lease["active-agent-circuit-id"] && (
                 <p className="flex items-center">
-                  <StatusDot ok={true} />
+                  <StatusDot ok={isConnected} />
                   <span className="opacity-60 mr-1 text-[10px] uppercase">
                     Port:
                   </span>
@@ -172,7 +177,7 @@ function HealthStatusBar({ promise, ipInfoPromise, makeIPStatic = () => {} }) {
               )}
               <div className="pt-2 flex items-center justify-between border-t border-paper/5 mt-2 pt-3">
                 <p className="flex items-center">
-                  <StatusDot ok={lease["dynamic"] === "false"} />
+                  <StatusDot ok={lease["dynamic"] === "false" && isConnected} />
                   <span className="opacity-60 mr-1 text-[10px] uppercase">
                     Lease:
                   </span>
@@ -185,7 +190,11 @@ function HealthStatusBar({ promise, ipInfoPromise, makeIPStatic = () => {} }) {
                   </span>
                 </p>
                 {lease["dynamic"] !== "false" && (
-                  <button onClick={makeIPStatic} className="btn-etched">
+                  <button
+                    onClick={makeIPStatic}
+                    disabled={!isConnected}
+                    className="btn-etched disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
                     Fix IP
                   </button>
                 )}
@@ -211,7 +220,7 @@ function HealthStatusBar({ promise, ipInfoPromise, makeIPStatic = () => {} }) {
   );
 }
 
-function IPRuleTable() {
+function IPRuleTable({ isConnected }) {
   const [resRule, setRes] = useState(null);
   const [resTables, setTables] = useState(null);
   const [selectedTable, setSelectedTable] = useState("");
@@ -233,6 +242,7 @@ function IPRuleTable() {
   }, []);
 
   const changeTable = async (e) => {
+    if (!isConnected) return;
     const value = e.target.value;
 
     const res = await fetchJSON("/api/ip-rule", {
@@ -252,7 +262,9 @@ function IPRuleTable() {
     return (
       <section className="fade-up" style={{ animationDelay: "200ms" }}>
         <DataCard title="Traffic Routing">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div
+            className={`flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-opacity ${isConnected ? "opacity-100" : "opacity-50"}`}
+          >
             <div className="space-y-1">
               <p className="text-paper/90 font-bold">Active Routing Rule</p>
               <p className="text-[10px] text-paper/40 leading-tight">
@@ -262,9 +274,10 @@ function IPRuleTable() {
             </div>
             <div className="relative group">
               <select
-                className="appearance-none bg-ink text-rust border border-rust/20 hover:border-rust/40 active:border-rust focus:border-rust outline-none rounded px-4 py-2 text-sm font-mono transition-all pr-10 cursor-pointer"
+                className="appearance-none bg-ink text-rust border border-rust/20 hover:border-rust/40 active:border-rust focus:border-rust outline-none rounded px-4 py-2 text-sm font-mono transition-all pr-10 cursor-pointer disabled:cursor-not-allowed"
                 value={selectedTable}
                 onChange={changeTable}
+                disabled={!isConnected}
               >
                 {tables.map((table) => (
                   <option key={table["name"]} value={table["name"]}>
@@ -347,6 +360,7 @@ function AppContent({
 }) {
   const healthResponse = use(healthPromise);
   const version = healthResponse?.version || "dev";
+  const isConnected = healthResponse?.connected !== false;
 
   useEffect(() => {
     let isCancelled = false;
@@ -377,6 +391,7 @@ function AppContent({
   }, [setHealthPromise, startTransition]);
 
   const makeIPStatic = async () => {
+    if (!isConnected) return;
     try {
       const response = await fetchJSON("/api/dhcp-make-static", {
         method: "POST",
@@ -402,8 +417,12 @@ function AppContent({
 
   return (
     <div
-      className="min-h-screen selection:bg-rust/30"
-      style={{ background: "var(--color-ink)", color: "var(--color-paper)" }}
+      className="min-h-screen selection:bg-rust/30 transition-opacity duration-700"
+      style={{
+        background: "var(--color-ink)",
+        color: "var(--color-paper)",
+        opacity: isConnected ? 1 : 0.7,
+      }}
     >
       <div
         className="fixed inset-0 pointer-events-none"
@@ -417,8 +436,7 @@ function AppContent({
       <div
         className="fixed top-0 right-0 w-[800px] h-[800px] pointer-events-none"
         style={{
-          background:
-            "radial-gradient(circle at 80% 20%, color-mix(in srgb, var(--color-rust) 5%, transparent) 0%, transparent 70%)",
+          background: `radial-gradient(circle at 80% 20%, color-mix(in srgb, var(${isConnected ? "--color-rust" : "--color-gold"}) 5%, transparent) 0%, transparent 70%)`,
         }}
       />
 
@@ -434,8 +452,15 @@ function AppContent({
                 Manager
               </em>
             </h1>
-            <div className="font-mono text-[10px] opacity-20 uppercase tracking-[0.2em]">
-              {version}
+            <div className="flex flex-col items-end gap-1">
+              <div className="font-mono text-[10px] opacity-20 uppercase tracking-[0.2em]">
+                {version}
+              </div>
+              {!isConnected && (
+                <div className="font-mono text-[9px] text-gold uppercase tracking-widest animate-pulse">
+                  Offline • Reconnecting
+                </div>
+              )}
             </div>
           </div>
 
@@ -453,11 +478,12 @@ function AppContent({
             promise={healthPromise}
             ipInfoPromise={ipInfoPromise}
             makeIPStatic={makeIPStatic}
+            isConnected={isConnected}
           />
         </header>
 
         <section className="space-y-8" style={fadeUp(100)}>
-          <IPRuleTable />
+          <IPRuleTable isConnected={isConnected} />
         </section>
 
         <footer

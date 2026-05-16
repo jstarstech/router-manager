@@ -44,13 +44,27 @@ function formatDurationToDaysTime(duration) {
  * @returns {Promise<JSON>} A promise that resolves with the JSON response.
  */
 function fetchJSON(url, init = {}) {
-  return fetch(url, init).then((r) => {
-    if (!r.ok) {
-      throw new Error(`${r.status} ${r.statusText}`);
+  return fetch(url, init).then(async (r) => {
+    let data;
+    try {
+      data = await r.json();
+    } catch (e) {
+      // Not JSON
     }
 
-    return r.json();
+    if (!r.ok) {
+      throw new Error(data?.message || `${r.status} ${r.statusText}`);
+    }
+
+    return data;
   });
+}
+
+function fetchJSONOrError(url, init = {}) {
+  return fetchJSON(url, init).catch((error) => ({
+    status: "error",
+    message: error.message,
+  }));
 }
 
 /**
@@ -74,7 +88,9 @@ function HealthStatusBar({ promise, ipInfoPromise, makeIPStatic = () => {} }) {
   const response = use(promise);
   const ipInfoResponse = use(ipInfoPromise);
   const isOk = response?.status === "ok";
-  const data = response.data.info || {};
+  const data = response.data?.info || {};
+  const userIP = response.data?.["user-ip"] || "unknown";
+  const lease = ipInfoResponse?.data?.lease || {};
 
   return (
     <div className="flex items-center gap-2 mb-6">
@@ -97,7 +113,7 @@ function HealthStatusBar({ promise, ipInfoPromise, makeIPStatic = () => {} }) {
             </p>
 
             <p>
-              <StatusDot ok={true} /> IP: {response.data["user-ip"]}
+              <StatusDot ok={true} /> IP: {userIP}
             </p>
           </>
         ) : (
@@ -106,24 +122,24 @@ function HealthStatusBar({ promise, ipInfoPromise, makeIPStatic = () => {} }) {
 
         {ipInfoResponse?.status === "ok" ? (
           <>
-            {ipInfoResponse.data["lease"]["active-agent-circuit-id"] && (
+            {lease["active-agent-circuit-id"] && (
               <>
                 <p>
                   <StatusDot ok={true} /> Bridge Port:{" "}
                   <span className="text-rust">
-                    {ipInfoResponse.data["bridge-port"]}
+                    {ipInfoResponse.data?.["bridge-port"]}
                   </span>
                 </p>
                 <p>
                   <StatusDot ok={true} /> Active agent circuit id:{" "}
                   <span className="text-rust">
-                    {ipInfoResponse.data["lease"]["active-agent-circuit-id"]}
+                    {lease["active-agent-circuit-id"]}
                   </span>
                 </p>
               </>
             )}
             <p>
-              {ipInfoResponse.data["lease"]["dynamic"] === "false" ? (
+              {lease["dynamic"] === "false" ? (
                 <>
                   <StatusDot ok={true} /> DHCP Lease: static
                 </>
@@ -143,9 +159,9 @@ function HealthStatusBar({ promise, ipInfoPromise, makeIPStatic = () => {} }) {
         ) : (
           <>
             {ipInfoResponse?.status === "error" &&
-            ipInfoResponse.message === "ip not found" ? (
+            ipInfoResponse?.message === "ip not found" ? (
               <p>
-                <StatusDot ok={false} /> DHCP server not running
+                <StatusDot ok={false} /> No DHCP lease for {ipInfoResponse.data?.["user-ip"] || userIP}
               </p>
             ) : (
               <p>
@@ -239,10 +255,10 @@ function LoadingFallback() {
 export default function App() {
   // React 19: store promises directly in state — use() unwraps in Suspense
   const [healthPromise, setHealthPromise] = useState(() =>
-    fetchJSON("/api/health"),
+    fetchJSONOrError("/api/health"),
   );
   const [ipInfoPromise, setIpInfoPromise] = useState(() =>
-    fetchJSON("/api/ip-info"),
+    fetchJSONOrError("/api/ip-info"),
   );
   const [isPending, startTransition] = useTransition();
 
@@ -252,7 +268,7 @@ export default function App() {
     async function poll() {
       if (isCancelled) return;
 
-      const nextPromise = fetchJSON("/api/health", {
+      const nextPromise = fetchJSONOrError("/api/health", {
         signal: AbortSignal.timeout(5000),
       });
 
@@ -260,16 +276,7 @@ export default function App() {
         setHealthPromise(nextPromise);
       });
 
-      try {
-        await nextPromise;
-      } catch (e) {
-        setHealthPromise(
-          Promise.resolve({
-            status: "error",
-            message: e.message,
-          }),
-        );
-      }
+      await nextPromise;
 
       if (!isCancelled) {
         setTimeout(poll, 5000);
@@ -285,11 +292,13 @@ export default function App() {
 
   const makeIPStatic = async () => {
     try {
-      const response = await fetchJSON("/api/dhcp-make-static");
+      const response = await fetchJSON("/api/dhcp-make-static", {
+        method: "POST",
+      });
 
       if (response.status === "ok") {
         startTransition(() => {
-          setIpInfoPromise(fetchJSON("/api/ip-info"));
+          setIpInfoPromise(fetchJSONOrError("/api/ip-info"));
         });
       } else {
         alert("Failed to make IP address static " + response.message);

@@ -30,7 +30,7 @@ type Config struct {
 		Username string `mapstructure:"username"`
 		Password string `mapstructure:"password"`
 		UseTLS   bool   `mapstructure:"useTLS"`
-		debug    bool   `mapstructure:"debug"`
+		Debug    bool   `mapstructure:"debug"`
 	} `mapstructure:"router"`
 }
 
@@ -50,6 +50,31 @@ func dial(config Config) (*routeros.Client, error) {
 func fatal(log *slog.Logger, message string, err error) {
 	log.Error(message, slog.Any("error", err))
 	os.Exit(2)
+}
+
+func writeJSON(w http.ResponseWriter, status int, payload any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func writeJSONError(w http.ResponseWriter, status int, message string) {
+	writeJSON(w, status, map[string]any{
+		"status":  "error",
+		"message": message,
+	})
+}
+
+func requestUserIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		ips := strings.Split(xff, ",")
+		return strings.TrimSpace(ips[0])
+	}
+	userIP, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return userIP
 }
 
 func main() {
@@ -87,7 +112,7 @@ func main() {
 	}
 
 	logLevel := slog.LevelInfo
-	if config.Router.debug {
+	if config.Router.Debug {
 		logLevel = slog.LevelDebug
 	}
 
@@ -129,17 +154,17 @@ func main() {
 	})
 
 	mux.HandleFunc("/api/ip-rule-tables", func(w http.ResponseWriter, r *http.Request) {
-		res, err := rosClient.RunArgs(strings.Split("/routing/table/print", " "))
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+
+		res, err := rosClient.RunArgs([]string{"/routing/table/print"})
 
 		if err != nil {
 			log.Println("Operation failed", err)
-
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{
-				"status":  "error",
-				"message": "error running command",
-			})
-
+			writeJSONError(w, http.StatusBadGateway, "error running command")
 			return
 		}
 
@@ -149,58 +174,47 @@ func main() {
 			ipRuleTables = append(ipRuleTables, v.Map)
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		writeJSON(w, http.StatusOK, map[string]any{
 			"status": "ok",
 			"data":   ipRuleTables,
 		})
 	})
 
 	mux.HandleFunc("/api/ip-rule", func(w http.ResponseWriter, r *http.Request) {
-		userIP, _, _ := net.SplitHostPort(r.RemoteAddr)
+		if r.Method != http.MethodGet && r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodGet+", "+http.MethodPost)
+			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+
+		userIP := requestUserIP(r)
 
 		if r.Method == http.MethodPost {
 			var data map[string]string
 			err := json.NewDecoder(r.Body).Decode(&data)
 			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
+				writeJSONError(w, http.StatusBadRequest, err.Error())
 				return
 			}
 			defer r.Body.Close()
 
 			if data["table"] == "" || data[".id"] == "" {
-				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(map[string]any{
-					"status":  "error",
-					"message": "table is required",
-				})
+				writeJSONError(w, http.StatusBadRequest, "table and .id are required")
 				return
 			}
 
-			_, err = rosClient.RunArgs(strings.Split("/routing/rule/set =.id="+data[".id"]+" =table="+data["table"], " "))
+			_, err = rosClient.RunArgs([]string{"/routing/rule/set", "=.id=" + data[".id"], "=table=" + data["table"]})
 			if err != nil {
 				log.Println("Operation failed", err)
-
-				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(map[string]any{
-					"status":  "error",
-					"message": "Failed to make lease static",
-				})
+				writeJSONError(w, http.StatusBadGateway, "failed to update rule")
 				return
 			}
-
 		}
 
-		res, err := rosClient.RunArgs(strings.Split("/routing/rule/print", " "))
+		res, err := rosClient.RunArgs([]string{"/routing/rule/print"})
 		if err != nil {
 			log.Println("Operation failed", err)
-
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{
-				"status":  "error",
-				"message": "error running command",
-			})
-
+			writeJSONError(w, http.StatusBadGateway, "error running command")
 			return
 		}
 
@@ -226,8 +240,7 @@ func main() {
 		}
 
 		if ipRule != nil {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{
+			writeJSON(w, http.StatusOK, map[string]any{
 				"status": "ok",
 				"data":   ipRule,
 			})
@@ -235,184 +248,151 @@ func main() {
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		writeJSON(w, http.StatusOK, map[string]any{
 			"status": "ok",
 			"data":   nil,
 		})
 	})
 
 	mux.HandleFunc("/api/ip-info", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-
-		userIP, _, _ := net.SplitHostPort(r.RemoteAddr)
-
-		res, err := rosClient.RunArgs(strings.Split("/ip/dhcp-server/lease/print detail where ?address="+userIP, " "))
-		if err != nil {
-			log.Println("Operation failed", err)
-
-			json.NewEncoder(w).Encode(map[string]any{
-				"status":  "error",
-				"message": "error running command",
-			})
-
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
 
-		leasweInfo := make(map[string]string)
+		userIP := requestUserIP(r)
 
-		if len(res.Re) == 1 {
-			maps.Copy(leasweInfo, res.Re[0].Map)
+		res, err := rosClient.RunArgs([]string{"/ip/dhcp-server/lease/print", "?address=" + userIP})
+		if err != nil {
+			log.Println("Operation failed", err)
+			writeJSONError(w, http.StatusBadGateway, "error running command")
+			return
+		}
+
+		leaseInfo := make(map[string]string)
+
+		if len(res.Re) >= 1 {
+			maps.Copy(leaseInfo, res.Re[0].Map)
 		} else {
-			json.NewEncoder(w).Encode(map[string]any{
+			log.Printf("No lease found for IP: %s", userIP)
+			writeJSON(w, http.StatusNotFound, map[string]any{
 				"status":  "error",
 				"message": "ip not found",
+				"data": map[string]any{
+					"user-ip": userIP,
+				},
 			})
-
-			return
-		}
-
-		resBridgeHost, err := rosClient.RunArgs(strings.Split("/interface/bridge/host/print where ?mac-address="+leasweInfo["active-mac-address"], " "))
-		if err != nil {
-			log.Println("Operation failed", err)
-
-			json.NewEncoder(w).Encode(map[string]any{
-				"status":  "error",
-				"message": "error running command",
-			})
-
 			return
 		}
 
 		bridgePort := ""
-
-		if len(resBridgeHost.Re) == 1 {
-			bridgePort = resBridgeHost.Re[0].Map["on-interface"]
+		macAddr := leaseInfo["active-mac-address"]
+		if macAddr == "" {
+			macAddr = leaseInfo["mac-address"]
 		}
 
-		json.NewEncoder(w).Encode(map[string]any{
+		if macAddr != "" {
+			resBridgeHost, err := rosClient.RunArgs([]string{"/interface/bridge/host/print", "?mac-address=" + macAddr})
+			if err == nil && len(resBridgeHost.Re) >= 1 {
+				bridgePort = resBridgeHost.Re[0].Map["on-interface"]
+			} else if err != nil {
+				log.Println("Bridge host lookup failed", err)
+			}
+		}
+
+		writeJSON(w, http.StatusOK, map[string]any{
 			"status": "ok",
 			"data": map[string]any{
 				"user-ip":     userIP,
 				"bridge-port": bridgePort,
-				"lease":       leasweInfo,
+				"lease":       leaseInfo,
 			},
 		})
 	})
 
 	mux.HandleFunc("/api/dhcp-make-static", func(w http.ResponseWriter, r *http.Request) {
-		userIP, _, _ := net.SplitHostPort(r.RemoteAddr)
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+
+		userIP := requestUserIP(r)
 
 		addr, err := netip.ParseAddr(userIP)
 		if err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{
-				"status":  "error",
-				"message": "Invalid IP address format",
-			})
+			writeJSONError(w, http.StatusBadRequest, "invalid IP address format")
 			return
 		}
 
 		if !addr.Is4() {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{
-				"status":  "error",
-				"message": "Invalid IP address family",
-			})
+			writeJSONError(w, http.StatusBadRequest, "invalid IP address family")
 			return
 		}
 
-		res1, err := rosClient.RunArgs(strings.Split("/ip/dhcp-server/lease/print where ?address="+userIP, " "))
+		res1, err := rosClient.RunArgs([]string{"/ip/dhcp-server/lease/print", "?address=" + userIP})
 		if err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{
-				"status":  "error",
-				"message": "Failed to find lease to make static",
-			})
+			writeJSONError(w, http.StatusBadGateway, "failed to find lease to make static")
 			return
 		}
 
 		leaseId := ""
 		leaseDynamic := ""
 
-		if len(res1.Re) == 1 {
+		if len(res1.Re) >= 1 {
 			leaseId = res1.Re[0].Map[".id"]
 			leaseDynamic = res1.Re[0].Map["dynamic"]
 		}
 
 		if leaseId == "" {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{
-				"status":  "error",
-				"message": "Lease not found",
-			})
+			writeJSONError(w, http.StatusNotFound, "lease not found")
 			return
 		}
 
 		if leaseDynamic == "false" {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{
-				"status":  "error",
-				"message": "Lease is not dynamic",
-			})
+			writeJSONError(w, http.StatusConflict, "lease is not dynamic")
 			return
 		}
 
-		_, err = rosClient.RunArgs(strings.Split("/ip/dhcp-server/lease/make-static =.id="+leaseId, " "))
+		_, err = rosClient.RunArgs([]string{"/ip/dhcp-server/lease/make-static", "=.id=" + leaseId})
 		if err != nil {
 			log.Println("Operation failed", err)
-
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{
-				"status":  "error",
-				"message": "Failed to make lease static",
-			})
+			writeJSONError(w, http.StatusBadGateway, "failed to make lease static")
 			return
 		}
 
-		res, err := rosClient.RunArgs(strings.Split("/ip/dhcp-server/lease/print where ?dynamic=no and ?address="+userIP, " "))
+		res, err := rosClient.RunArgs([]string{"/ip/dhcp-server/lease/print", "?address=" + userIP})
 		if err != nil {
-			http.Error(w, "Failed to print lease", http.StatusInternalServerError)
-
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{
-				"status":  "error",
-				"message": "Failed to validate lease static",
-			})
+			log.Println("Operation failed", err)
+			writeJSONError(w, http.StatusBadGateway, "failed to validate lease static")
 			return
 		}
 
-		if len(res.Re) == 0 {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{
-				"status":  "error",
-				"message": "Failed to validate lease static (not found)",
-			})
+		if len(res.Re) == 0 || res.Re[0].Map["dynamic"] == "true" {
+			writeJSONError(w, http.StatusInternalServerError, "failed to validate lease static")
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		writeJSON(w, http.StatusOK, map[string]any{
 			"status":  "ok",
 			"message": "Lease made static",
 		})
-
 	})
 
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
 
-		userIP, _, _ := net.SplitHostPort(r.RemoteAddr)
+		userIP := requestUserIP(r)
 
-		r1, err := rosClient.RunArgs(strings.Split("/system/resource/print", " "))
+		r1, err := rosClient.RunArgs([]string{"/system/resource/print"})
 		if err != nil {
 			log.Println("Operation failed", err)
-
-			json.NewEncoder(w).Encode(map[string]any{
-				"status":  "ok",
-				"message": "error running command",
-			})
-
+			writeJSONError(w, http.StatusBadGateway, "error running command")
 			return
 		}
 
@@ -422,7 +402,7 @@ func main() {
 			maps.Copy(info, re.Map)
 		}
 
-		json.NewEncoder(w).Encode(map[string]any{
+		writeJSON(w, http.StatusOK, map[string]any{
 			"status": "ok",
 			"data": map[string]any{
 				"user-ip": userIP,

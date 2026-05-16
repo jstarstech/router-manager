@@ -14,6 +14,7 @@ import (
 	"net/netip"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/go-routeros/routeros/v3"
 	"github.com/spf13/viper"
@@ -32,6 +33,56 @@ type Config struct {
 		UseTLS   bool   `mapstructure:"useTLS"`
 		Debug    bool   `mapstructure:"debug"`
 	} `mapstructure:"router"`
+}
+
+type RouterManager struct {
+	config  Config
+	client  *routeros.Client
+	handler slog.Handler
+	mu      sync.Mutex
+}
+
+func NewRouterManager(config Config, handler slog.Handler) *RouterManager {
+	return &RouterManager{
+		config:  config,
+		handler: handler,
+	}
+}
+
+func (m *RouterManager) getClient() (*routeros.Client, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.client != nil {
+		// Check if connection is still alive by running a no-op command
+		// or checking an internal state if available.
+		// RunArgs is safer to check actual connectivity.
+		_, err := m.client.RunArgs([]string{"/system/identity/print"})
+		if err == nil {
+			return m.client, nil
+		}
+		// Connection lost, close and try to reconnect
+		m.client.Close()
+		m.client = nil
+	}
+
+	client, err := dial(m.config)
+	if err != nil {
+		return nil, err
+	}
+
+	client.SetLogHandler(m.handler)
+	client.Async()
+	m.client = client
+	return m.client, nil
+}
+
+func (m *RouterManager) RunArgs(args []string) (*routeros.Reply, error) {
+	client, err := m.getClient()
+	if err != nil {
+		return nil, err
+	}
+	return client.RunArgs(args)
 }
 
 //go:embed frontend/dist
@@ -123,15 +174,7 @@ func main() {
 
 	slogger := slog.New(handler)
 
-	rosClient, err := dial(config)
-	if err != nil {
-		fatal(slogger, "Could not connect to router", err)
-		return
-	}
-
-	defer rosClient.Close()
-	rosClient.SetLogHandler(handler)
-	rosClient.Async()
+	router := NewRouterManager(config, handler)
 
 	mux := http.NewServeMux()
 
@@ -160,7 +203,7 @@ func main() {
 			return
 		}
 
-		res, err := rosClient.RunArgs([]string{"/routing/table/print"})
+		res, err := router.RunArgs([]string{"/routing/table/print"})
 
 		if err != nil {
 			log.Println("Operation failed", err)
@@ -203,7 +246,7 @@ func main() {
 				return
 			}
 
-			_, err = rosClient.RunArgs([]string{"/routing/rule/set", "=.id=" + data[".id"], "=table=" + data["table"]})
+			_, err = router.RunArgs([]string{"/routing/rule/set", "=.id=" + data[".id"], "=table=" + data["table"]})
 			if err != nil {
 				log.Println("Operation failed", err)
 				writeJSONError(w, http.StatusBadGateway, "failed to update rule")
@@ -211,7 +254,7 @@ func main() {
 			}
 		}
 
-		res, err := rosClient.RunArgs([]string{"/routing/rule/print"})
+		res, err := router.RunArgs([]string{"/routing/rule/print"})
 		if err != nil {
 			log.Println("Operation failed", err)
 			writeJSONError(w, http.StatusBadGateway, "error running command")
@@ -263,7 +306,7 @@ func main() {
 
 		userIP := requestUserIP(r)
 
-		res, err := rosClient.RunArgs([]string{"/ip/dhcp-server/lease/print", "?address=" + userIP})
+		res, err := router.RunArgs([]string{"/ip/dhcp-server/lease/print", "?address=" + userIP})
 		if err != nil {
 			log.Println("Operation failed", err)
 			writeJSONError(w, http.StatusBadGateway, "error running command")
@@ -293,7 +336,7 @@ func main() {
 		}
 
 		if macAddr != "" {
-			resBridgeHost, err := rosClient.RunArgs([]string{"/interface/bridge/host/print", "?mac-address=" + macAddr})
+			resBridgeHost, err := router.RunArgs([]string{"/interface/bridge/host/print", "?mac-address=" + macAddr})
 			if err == nil && len(resBridgeHost.Re) >= 1 {
 				bridgePort = resBridgeHost.Re[0].Map["on-interface"]
 			} else if err != nil {
@@ -331,7 +374,7 @@ func main() {
 			return
 		}
 
-		res1, err := rosClient.RunArgs([]string{"/ip/dhcp-server/lease/print", "?address=" + userIP})
+		res1, err := router.RunArgs([]string{"/ip/dhcp-server/lease/print", "?address=" + userIP})
 		if err != nil {
 			writeJSONError(w, http.StatusBadGateway, "failed to find lease to make static")
 			return
@@ -355,14 +398,14 @@ func main() {
 			return
 		}
 
-		_, err = rosClient.RunArgs([]string{"/ip/dhcp-server/lease/make-static", "=.id=" + leaseId})
+		_, err = router.RunArgs([]string{"/ip/dhcp-server/lease/make-static", "=.id=" + leaseId})
 		if err != nil {
 			log.Println("Operation failed", err)
 			writeJSONError(w, http.StatusBadGateway, "failed to make lease static")
 			return
 		}
 
-		res, err := rosClient.RunArgs([]string{"/ip/dhcp-server/lease/print", "?address=" + userIP})
+		res, err := router.RunArgs([]string{"/ip/dhcp-server/lease/print", "?address=" + userIP})
 		if err != nil {
 			log.Println("Operation failed", err)
 			writeJSONError(w, http.StatusBadGateway, "failed to validate lease static")
@@ -389,7 +432,7 @@ func main() {
 
 		userIP := requestUserIP(r)
 
-		r1, err := rosClient.RunArgs([]string{"/system/resource/print"})
+		r1, err := router.RunArgs([]string{"/system/resource/print"})
 		if err != nil {
 			log.Println("Operation failed", err)
 			writeJSONError(w, http.StatusBadGateway, "error running command")

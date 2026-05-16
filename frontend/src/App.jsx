@@ -105,6 +105,67 @@ function DataCard({ title, children, icon }) {
   );
 }
 
+function CopyableIP({ ip }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(ip);
+      } else {
+        // Fallback for non-secure (HTTP) contexts
+        const textArea = document.createElement("textarea");
+        textArea.value = ip;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-9999px";
+        textArea.style.top = "0";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textArea);
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error("Failed to copy!", err);
+    }
+  };
+
+  return (
+    <div
+      className="group flex items-center gap-2 cursor-pointer relative"
+      onClick={handleCopy}
+      title="Click to copy IP"
+    >
+      <span className="text-paper/90 select-all font-bold tracking-tight">
+        {ip}
+      </span>
+      <div className="opacity-0 group-hover:opacity-40 transition-opacity flex items-center">
+        {copied ? (
+          <span className="text-[10px] text-sage font-bold uppercase tracking-tighter absolute left-full ml-2 whitespace-nowrap">
+            Copied
+          </span>
+        ) : (
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+          </svg>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function HealthStatusBar({
   promise,
   ipInfoPromise,
@@ -154,13 +215,11 @@ function HealthStatusBar({
 
       <DataCard title="Client Connection">
         <div className="space-y-2">
-          <p className="flex items-center">
+          <div className="flex items-center">
             <StatusDot ok={isConnected} />
             <span className="opacity-60 mr-1 text-[10px] uppercase">IP:</span>
-            <span className="text-paper/90 select-all font-bold tracking-tight">
-              {userIP}
-            </span>
-          </p>
+            <CopyableIP ip={userIP} />
+          </div>
 
           {ipInfoResponse?.status === "ok" ? (
             <>

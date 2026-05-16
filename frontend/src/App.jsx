@@ -73,14 +73,35 @@ function fetchJSONOrError(url, init = {}) {
  * @param {boolean} ok If true, the dot is green; otherwise, it is red.
  */
 function StatusDot({ ok }) {
+  const color = ok ? "#4ade80" : "#f87171";
   return (
     <span
-      className="inline-block w-2 h-2 rounded-full mr-2"
+      className="inline-block w-1.5 h-1.5 rounded-full mr-2.5"
       style={{
-        backgroundColor: ok ? "#4ade80" : "#f87171",
+        backgroundColor: color,
+        boxShadow: `0 0 8px ${color}`,
         animation: "var(--animate-pulse-slow)",
       }}
     />
+  );
+}
+
+function DataCard({ title, children, icon }) {
+  return (
+    <div className="glass-card p-4 flex flex-col gap-3">
+      <header className="flex items-center justify-between">
+        <span
+          className="font-mono text-[10px] uppercase tracking-widest"
+          style={{
+            color: "color-mix(in srgb, var(--color-paper) 30%, transparent)",
+          }}
+        >
+          {title}
+        </span>
+        {icon && <span className="opacity-20">{icon}</span>}
+      </header>
+      <div className="font-mono text-xs space-y-2">{children}</div>
+    </div>
   );
 }
 
@@ -93,84 +114,99 @@ function HealthStatusBar({ promise, ipInfoPromise, makeIPStatic = () => {} }) {
   const lease = ipInfoResponse?.data?.lease || {};
 
   return (
-    <div className="flex items-center gap-2 mb-6">
-      <span
-        className="font-mono text-xs"
-        style={{
-          color: "color-mix(in srgb, var(--color-paper) 30%, transparent)",
-        }}
-      >
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+      <DataCard title="System Identity">
         {isOk ? (
           <>
-            <p>
-              {data.platform} {data["board-name"]} ({data["architecture-name"]})
-              · Software : {data.version}
+            <p className="text-paper/80">
+              {data.platform} {data["board-name"]}
             </p>
-            <p>&nbsp;</p>
-            <p>
-              <StatusDot ok={isOk} /> Uptime:{" "}
-              {formatDurationToDaysTime(data.uptime)}
+            <p
+              className="text-[10px]"
+              style={{
+                color:
+                  "color-mix(in srgb, var(--color-paper) 40%, transparent)",
+              }}
+            >
+              Arch: {data["architecture-name"]} · Soft: {data.version}
             </p>
-
-            <p>
-              <StatusDot ok={true} /> IP: {userIP}
+            <p className="pt-2 flex items-center">
+              <StatusDot ok={isOk} />
+              <span className="opacity-60 mr-1 text-[10px] uppercase">
+                Uptime:
+              </span>
+              <span className="text-rust">
+                {formatDurationToDaysTime(data.uptime)}
+              </span>
             </p>
           </>
         ) : (
-          <p>Error fetching status</p>
+          <p className="text-rust italic text-[10px]">
+            System identity unreachable
+          </p>
         )}
+      </DataCard>
 
-        {ipInfoResponse?.status === "ok" ? (
-          <>
-            {lease["active-agent-circuit-id"] && (
-              <>
-                <p>
-                  <StatusDot ok={true} /> Bridge Port:{" "}
-                  <span className="text-rust">
+      <DataCard title="Client Connection">
+        <div className="space-y-2">
+          <p className="flex items-center">
+            <StatusDot ok={true} />
+            <span className="opacity-60 mr-1 text-[10px] uppercase">IP:</span>
+            <span className="text-paper/90 select-all font-bold tracking-tight">
+              {userIP}
+            </span>
+          </p>
+
+          {ipInfoResponse?.status === "ok" ? (
+            <>
+              {lease["active-agent-circuit-id"] && (
+                <p className="flex items-center">
+                  <StatusDot ok={true} />
+                  <span className="opacity-60 mr-1 text-[10px] uppercase">
+                    Port:
+                  </span>
+                  <span className="text-rust font-bold">
                     {ipInfoResponse.data?.["bridge-port"]}
                   </span>
                 </p>
-                <p>
-                  <StatusDot ok={true} /> Active agent circuit id:{" "}
-                  <span className="text-rust">
-                    {lease["active-agent-circuit-id"]}
+              )}
+              <div className="pt-2 flex items-center justify-between border-t border-paper/5 mt-2 pt-3">
+                <p className="flex items-center">
+                  <StatusDot ok={lease["dynamic"] === "false"} />
+                  <span className="opacity-60 mr-1 text-[10px] uppercase">
+                    Lease:
+                  </span>
+                  <span
+                    className={
+                      lease["dynamic"] === "false" ? "text-sage" : "text-gold"
+                    }
+                  >
+                    {lease["dynamic"] === "false" ? "Static" : "Dynamic"}
                   </span>
                 </p>
-              </>
-            )}
-            <p>
-              {lease["dynamic"] === "false" ? (
-                <>
-                  <StatusDot ok={true} /> DHCP Lease: static
-                </>
+                {lease["dynamic"] !== "false" && (
+                  <button onClick={makeIPStatic} className="btn-etched">
+                    Fix IP
+                  </button>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="pt-2 border-t border-paper/5 mt-2 pt-3">
+              {ipInfoResponse?.status === "error" &&
+              ipInfoResponse?.message === "ip not found" ? (
+                <p className="flex items-center text-rust/80 italic text-[10px]">
+                  <StatusDot ok={false} /> No DHCP lease for {userIP}
+                </p>
               ) : (
-                <>
-                  <StatusDot ok={false} /> DHCP Lease: dynamic{" "}
-                  <span
-                    className="cursor-pointer hover:text-rust"
-                    onClick={makeIPStatic}
-                  >
-                    [make static]
-                  </span>
-                </>
+                <p className="flex items-center text-rust italic text-[10px]">
+                  <StatusDot ok={false} /> IP info pending...
+                </p>
               )}
-            </p>
-          </>
-        ) : (
-          <>
-            {ipInfoResponse?.status === "error" &&
-            ipInfoResponse?.message === "ip not found" ? (
-              <p>
-                <StatusDot ok={false} /> No DHCP lease for {ipInfoResponse.data?.["user-ip"] || userIP}
-              </p>
-            ) : (
-              <p>
-                <StatusDot ok={false} /> Error fetching IP info
-              </p>
-            )}
-          </>
-        )}
-      </span>
+            </div>
+          )}
+        </div>
+      </DataCard>
     </div>
   );
 }
@@ -214,24 +250,49 @@ function IPRuleTable() {
 
   if (resRule?.status === "ok" && resRule?.data && resRule.data?.table) {
     return (
-      <div className="px-2 py-4 border border-rust/10 rounded">
-        <span className="inline-block mr-4">Active route table:</span>
-        <select
-          className="bg-ink text-rust border border-rust/30 active:border-rust/30 focus:border-rust/30 outline-none rounded px-2 py-1 text-sm"
-          value={selectedTable}
-          onChange={changeTable}
-        >
-          {tables.map((table) => (
-            <option
-              className="dark:bg-red"
-              key={table["name"]}
-              value={table["name"]}
-            >
-              {table.name}
-            </option>
-          ))}
-        </select>
-      </div>
+      <section className="fade-up" style={{ animationDelay: "200ms" }}>
+        <DataCard title="Traffic Routing">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <p className="text-paper/90 font-bold">Active Routing Rule</p>
+              <p className="text-[10px] text-paper/40 leading-tight">
+                Traffic from your IP is currently being processed by the table
+                selected below.
+              </p>
+            </div>
+            <div className="relative group">
+              <select
+                className="appearance-none bg-ink text-rust border border-rust/20 hover:border-rust/40 active:border-rust focus:border-rust outline-none rounded px-4 py-2 text-sm font-mono transition-all pr-10 cursor-pointer"
+                value={selectedTable}
+                onChange={changeTable}
+              >
+                {tables.map((table) => (
+                  <option key={table["name"]} value={table["name"]}>
+                    {table.name}
+                  </option>
+                ))}
+              </select>
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none opacity-40 group-hover:opacity-100 transition-opacity">
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 12 12"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path
+                    d="M3 4.5L6 7.5L9 4.5"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </div>
+            </div>
+          </div>
+        </DataCard>
+      </section>
     );
   }
 
@@ -262,6 +323,31 @@ export default function App() {
   );
   const [isPending, startTransition] = useTransition();
 
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      <AppContent
+        healthPromise={healthPromise}
+        setHealthPromise={setHealthPromise}
+        ipInfoPromise={ipInfoPromise}
+        setIpInfoPromise={setIpInfoPromise}
+        isPending={isPending}
+        startTransition={startTransition}
+      />
+    </Suspense>
+  );
+}
+
+function AppContent({
+  healthPromise,
+  setHealthPromise,
+  ipInfoPromise,
+  setIpInfoPromise,
+  isPending,
+  startTransition,
+}) {
+  const healthResponse = use(healthPromise);
+  const version = healthResponse?.version || "dev";
+
   useEffect(() => {
     let isCancelled = false;
 
@@ -288,7 +374,7 @@ export default function App() {
     return () => {
       isCancelled = true;
     };
-  }, []);
+  }, [setHealthPromise, startTransition]);
 
   const makeIPStatic = async () => {
     try {
@@ -316,74 +402,84 @@ export default function App() {
 
   return (
     <div
-      className="min-h-screen"
+      className="min-h-screen selection:bg-rust/30"
       style={{ background: "var(--color-ink)", color: "var(--color-paper)" }}
     >
       <div
         className="fixed inset-0 pointer-events-none"
         style={{
-          opacity: 0.03,
+          opacity: 0.02,
           backgroundImage:
             "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")",
         }}
       />
 
       <div
-        className="fixed top-0 right-0 w-[600px] h-[600px] pointer-events-none"
+        className="fixed top-0 right-0 w-[800px] h-[800px] pointer-events-none"
         style={{
           background:
-            "radial-gradient(circle at 80% 20%, color-mix(in srgb, var(--color-rust) 8%, transparent) 0%, transparent 60%)",
+            "radial-gradient(circle at 80% 20%, color-mix(in srgb, var(--color-rust) 5%, transparent) 0%, transparent 70%)",
         }}
       />
 
-      <div className="relative max-w-3xl mx-auto px-6 py-16">
-        <header className="mb-8" style={fadeUp(0)}>
-          <h1
-            className="text-2xl md:text-4xl leading-none mb-4 tracking-tight"
-            style={{ fontFamily: "var(--font-display)" }}
-          >
-            Router{" "}
-            <em style={{ color: "var(--color-rust)", fontStyle: "italic" }}>
-              Manager
-            </em>
-          </h1>
+      <div className="relative max-w-4xl mx-auto px-6 py-12 md:py-24">
+        <header className="mb-12" style={fadeUp(0)}>
+          <div className="flex items-baseline justify-between mb-6">
+            <h1
+              className="text-3xl md:text-5xl leading-none tracking-tighter"
+              style={{ fontFamily: "var(--font-display)" }}
+            >
+              Router{" "}
+              <em style={{ color: "var(--color-rust)", fontStyle: "italic" }}>
+                Manager
+              </em>
+            </h1>
+            <div className="font-mono text-[10px] opacity-20 uppercase tracking-[0.2em]">
+              v{version}
+            </div>
+          </div>
+
           <p
-            className="font-mono text-sm leading-relaxed max-w-md"
+            className="font-mono text-xs leading-relaxed max-w-md mb-8"
             style={{
               color: "color-mix(in srgb, var(--color-paper) 40%, transparent)",
             }}
-          ></p>
+          >
+            A high-performance control interface for RouterOS network devices,
+            optimized for real-time monitoring and routing management.
+          </p>
 
-          <hr className="my-3 border-[color-mix(in_srgb,var(--color-paper)_8%,transparent)]" />
-
-          <Suspense fallback={<LoadingFallback />}>
-            <HealthStatusBar
-              promise={healthPromise}
-              ipInfoPromise={ipInfoPromise}
-              makeIPStatic={makeIPStatic}
-            />
-          </Suspense>
+          <HealthStatusBar
+            promise={healthPromise}
+            ipInfoPromise={ipInfoPromise}
+            makeIPStatic={makeIPStatic}
+          />
         </header>
 
-        <section>
+        <section className="space-y-8" style={fadeUp(100)}>
           <IPRuleTable />
         </section>
 
         <footer
-          className="mt-16 pt-8"
+          className="mt-24 pt-8 flex items-center justify-between"
           style={{
             borderTop:
-              "1px solid color-mix(in srgb, var(--color-paper) 8%, transparent)",
+              "1px solid color-mix(in srgb, var(--color-paper) 5%, transparent)",
           }}
         >
           <p
-            className="font-mono text-xs"
+            className="font-mono text-[10px] uppercase tracking-widest"
             style={{
               color: "color-mix(in srgb, var(--color-paper) 20%, transparent)",
             }}
           >
-            Router Manager
+            © 2026 Router Manager System
           </p>
+          <div className="flex gap-4 opacity-20 hover:opacity-100 transition-opacity">
+            <div className="w-1 h-1 rounded-full bg-paper" />
+            <div className="w-1 h-1 rounded-full bg-paper" />
+            <div className="w-1 h-1 rounded-full bg-paper" />
+          </div>
         </footer>
       </div>
     </div>

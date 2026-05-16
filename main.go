@@ -543,7 +543,8 @@ func main() {
 		cache.mu.RUnlock()
 
 		writeJSON(w, http.StatusOK, map[string]any{
-			"status": "ok",
+			"status":  "ok",
+			"version": Version,
 			"data": map[string]any{
 				"user-ip": userIP,
 				"info":    info,

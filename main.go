@@ -662,6 +662,19 @@ func main() {
 			if comment == "" {
 				comment = fmt.Sprintf("pm-%s-%s-%s", userIP, proto, extPort)
 			}
+
+			// Check if the external port is already in use for this protocol
+			checkRes, err := router.RunArgs([]string{
+				"/ip/firewall/nat/print",
+				"?action=dst-nat",
+				"?protocol=" + proto,
+				"?dst-port=" + extPort,
+			})
+			if err == nil && len(checkRes.Re) > 0 {
+				writeJSONError(w, http.StatusConflict, fmt.Sprintf("Port %s/%s is already mapped by another rule", extPort, proto))
+				return
+			}
+
 			_, err = router.RunArgs([]string{
 				"/ip/firewall/nat/add",
 				"=chain=dstnat",

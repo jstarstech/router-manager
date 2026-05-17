@@ -279,6 +279,229 @@ function HealthStatusBar({
   );
 }
 
+function PortMapping({ isConnected }) {
+  const [res, setRes] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [form, setForm] = useState({
+    protocol: "tcp",
+    externalPort: "",
+    internalPort: "",
+  });
+
+  const mappings = res?.data || [];
+  const isDisabled = res?.status === "error";
+
+  const fetchMappings = async () => {
+    try {
+      const data = await fetchJSON("/api/port-mapping");
+      setRes(data);
+    } catch (e) {
+      setRes({ status: "error", message: e.message });
+    }
+  };
+
+  useEffect(() => {
+    if (isConnected) fetchMappings();
+  }, [isConnected]);
+
+  const addMapping = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      await fetchJSON("/api/port-mapping", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      setForm({ ...form, externalPort: "", internalPort: "" });
+      fetchMappings();
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleMapping = async (id, currentDisabled) => {
+    try {
+      await fetchJSON("/api/port-mapping", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ".id": id,
+          disabled: currentDisabled === "true" ? "false" : "true",
+        }),
+      });
+      fetchMappings();
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+
+  const deleteMapping = async (id) => {
+    if (!confirm("Are you sure?")) return;
+    try {
+      await fetchJSON("/api/port-mapping", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ".id": id }),
+      });
+      fetchMappings();
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+
+  if (isDisabled) return null;
+
+  return (
+    <section className="fade-up" style={{ animationDelay: "100ms" }}>
+      <DataCard title="Port Mapping">
+        <div className="space-y-4">
+          <form
+            onSubmit={addMapping}
+            className="flex flex-wrap items-end gap-3 p-3 bg-paper/5 rounded border border-paper/5"
+          >
+            <div className="space-y-1">
+              <label className="block text-[10px] uppercase opacity-50 font-mono">
+                Proto
+              </label>
+              <select
+                className="bg-ink text-rust border border-rust/20 rounded px-2 py-1.5 text-xs font-mono outline-none"
+                value={form.protocol}
+                onChange={(e) => setForm({ ...form, protocol: e.target.value })}
+              >
+                <option value="tcp">TCP</option>
+                <option value="udp">UDP</option>
+              </select>
+            </div>
+            <div className="space-y-1 flex-1 min-w-[80px]">
+              <label className="block text-[10px] uppercase opacity-50 font-mono">
+                Ext. Port
+              </label>
+              <input
+                type="text"
+                className="w-full bg-ink text-rust border border-rust/20 rounded px-3 py-1.5 text-xs font-mono outline-none focus:border-rust/50"
+                placeholder="8080"
+                value={form.externalPort}
+                onChange={(e) =>
+                  setForm({ ...form, externalPort: e.target.value })
+                }
+              />
+            </div>
+            <div className="space-y-1 flex-1 min-w-[80px]">
+              <label className="block text-[10px] uppercase opacity-50 font-mono">
+                Int. Port
+              </label>
+              <input
+                type="text"
+                className="w-full bg-ink text-rust border border-rust/20 rounded px-3 py-1.5 text-xs font-mono outline-none focus:border-rust/50"
+                placeholder="80"
+                value={form.internalPort}
+                onChange={(e) =>
+                  setForm({ ...form, internalPort: e.target.value })
+                }
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={loading || !isConnected}
+              className="bg-rust text-ink px-4 py-1.5 rounded text-xs font-bold uppercase tracking-wider hover:bg-rust/90 active:scale-95 transition-all disabled:opacity-50 disabled:pointer-events-none h-[31px]"
+            >
+              Add
+            </button>
+          </form>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-paper/5">
+                  <th className="py-2 text-[10px] uppercase opacity-40 font-mono font-normal">
+                    Protocol
+                  </th>
+                  <th className="py-2 text-[10px] uppercase opacity-40 font-mono font-normal">
+                    External
+                  </th>
+                  <th className="py-2 text-[10px] uppercase opacity-40 font-mono font-normal">
+                    Internal
+                  </th>
+                  <th className="py-2 text-[10px] uppercase opacity-40 font-mono font-normal text-right">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-paper/5">
+                {mappings.map((m) => (
+                  <tr key={m[".id"]} className="group">
+                    <td className="py-3 text-xs font-mono uppercase">
+                      {m.protocol}
+                      {m.dynamic === "true" && (
+                        <span className="ml-2 px-1 bg-gold/10 text-gold text-[8px] border border-gold/20 rounded-sm">
+                          {m.comment?.toLowerCase().includes("upnp")
+                            ? "UPNP"
+                            : m.comment?.toLowerCase().includes("nat-pmp")
+                              ? "NAT-PMP"
+                              : "DYN"}
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-3 text-xs font-mono text-rust">
+                      {m.externalPort}
+                    </td>
+                    <td className="py-3 text-xs font-mono opacity-70">
+                      {m.internalPort}
+                    </td>
+                    <td className="py-3 text-right">
+                      <div className="flex justify-end items-center gap-2">
+                        <button
+                          onClick={() => toggleMapping(m[".id"], m.disabled)}
+                          disabled={m.dynamic === "true"}
+                          className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded transition-colors ${m.dynamic === "true" ? "bg-paper/5 text-paper/20 cursor-not-allowed" : m.disabled === "true" ? "bg-paper/10 text-paper/40" : "bg-rust/20 text-rust"}`}
+                        >
+                          {m.disabled === "true" ? "Disabled" : "Active"}
+                        </button>
+                        <button
+                          onClick={() => deleteMapping(m[".id"])}
+                          disabled={m.dynamic === "true"}
+                          className={`p-1.5 transition-colors ${m.dynamic === "true" ? "text-paper/5 cursor-not-allowed" : "text-paper/20 hover:text-red-400"}`}
+                        >
+                          <svg
+                            className="w-3 h-3"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                            />
+                          </svg>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {mappings.length === 0 && (
+                  <tr>
+                    <td
+                      colSpan="4"
+                      className="py-8 text-center text-[10px] uppercase opacity-20 tracking-widest"
+                    >
+                      No port mappings defined
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </DataCard>
+    </section>
+  );
+}
+
 function IPRuleTable({ isConnected }) {
   const [resRule, setRes] = useState(null);
   const [resTables, setTables] = useState(null);
@@ -542,6 +765,7 @@ function AppContent({
         </header>
 
         <section className="space-y-8" style={fadeUp(100)}>
+          <PortMapping isConnected={isConnected} />
           <IPRuleTable isConnected={isConnected} />
         </section>
 

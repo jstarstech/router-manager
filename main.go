@@ -35,6 +35,9 @@ type Config struct {
 		UseTLS   bool   `mapstructure:"useTLS"`
 		Debug    bool   `mapstructure:"debug"`
 	} `mapstructure:"router"`
+	Features struct {
+		PortMapping bool `mapstructure:"portMapping"`
+	} `mapstructure:"features"`
 }
 
 type RouterManager struct {
@@ -324,6 +327,7 @@ func main() {
 	viper.SetDefault("router.username", "admin")
 	viper.SetDefault("router.password", "")
 	viper.SetDefault("router.useTLS", false)
+	viper.SetDefault("features.portMapping", true)
 
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
@@ -361,6 +365,41 @@ func main() {
 	router := NewRouterManager(config, handler)
 	cache := NewCacheManager(router)
 	cache.StartPolling(context.Background())
+
+	if config.Features.PortMapping {
+		go func() {
+			time.Sleep(2 * time.Second) // Wait for initial connection
+			res, err := router.RunArgs([]string{"/ip/firewall/filter/print"})
+			if err != nil {
+				return
+			}
+
+			found := false
+			for _, re := range res.Re {
+				action := re.Map["action"]
+				natState := re.Map["connection-nat-state"]
+				comment := strings.ToLower(re.Map["comment"])
+
+				// Pattern 1: Explicit accept for dstnat
+				if action == "accept" && natState == "dstnat" {
+					found = true
+					break
+				}
+				// Pattern 2: Drop all from WAN not DSTNATed (default config)
+				// The API usually returns negated values with a prefix or as a separate property,
+				// but often the comment is the most reliable indicator if the logic is complex.
+				// We also check for 'drop' and '!dstnat' if the API provides it that way.
+				if action == "drop" && (natState == "!dstnat" || strings.Contains(comment, "not dstnated")) {
+					found = true
+					break
+				}
+			}
+
+			if !found {
+				log.Println("WARNING: Port mapping feature enabled, but no global allow rule found for dstnat. Suggest running: /ip firewall filter add action=accept chain=forward connection-nat-state=dstnat comment=\"allow dstnat\"")
+			}
+		}()
+	}
 
 	mux := http.NewServeMux()
 
@@ -559,6 +598,119 @@ func main() {
 			"status":  "ok",
 			"message": "Lease made static",
 		})
+	})
+
+	mux.HandleFunc("/api/port-mapping", func(w http.ResponseWriter, r *http.Request) {
+		if !config.Features.PortMapping {
+			writeJSONError(w, http.StatusForbidden, "Port mapping feature is disabled")
+			return
+		}
+
+		userIP := requestUserIP(r)
+
+		switch r.Method {
+		case http.MethodGet:
+			res, err := router.RunArgs([]string{"/ip/firewall/nat/print", "?action=dst-nat", "?to-addresses=" + userIP})
+			if err != nil {
+				writeJSONError(w, http.StatusBadGateway, "failed to get nat rules")
+				return
+			}
+			var rules []map[string]string
+			for _, re := range res.Re {
+				// Show all dst-nat rules for this IP, regardless of comment
+				extPort := re.Map["dst-port"]
+				intPort := re.Map["to-ports"]
+				if intPort == "" {
+					intPort = extPort // Common in some NAT setups
+				}
+
+				rules = append(rules, map[string]string{
+					".id":          re.Map[".id"],
+					"protocol":     re.Map["protocol"],
+					"externalPort": extPort,
+					"internalPort": intPort,
+					"disabled":     re.Map["disabled"],
+					"comment":      re.Map["comment"],
+					"dynamic":      re.Map["dynamic"],
+				})
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "data": rules})
+
+		case http.MethodPost:
+			var data map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
+				writeJSONError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			proto := data["protocol"]
+			extPort := data["externalPort"]
+			intPort := data["internalPort"]
+			if proto == "" || extPort == "" || intPort == "" {
+				writeJSONError(w, http.StatusBadRequest, "protocol, externalPort, and internalPort are required")
+				return
+			}
+			comment := fmt.Sprintf("pm-%s-%s-%s", userIP, proto, extPort)
+			_, err = router.RunArgs([]string{
+				"/ip/firewall/nat/add",
+				"=chain=dstnat",
+				"=action=dst-nat",
+				"=to-addresses=" + userIP,
+				"=to-ports=" + intPort,
+				"=protocol=" + proto,
+				"=dst-port=" + extPort,
+				"=comment=" + comment,
+			})
+			if err != nil {
+				writeJSONError(w, http.StatusBadGateway, "failed to add nat rule")
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+
+		case http.MethodPut, http.MethodPatch:
+			var data map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
+				writeJSONError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			id := data[".id"]
+			disabled := data["disabled"]
+			if id == "" || disabled == "" {
+				writeJSONError(w, http.StatusBadRequest, ".id and disabled are required")
+				return
+			}
+			action := "enable"
+			if disabled == "true" || disabled == "yes" {
+				action = "disable"
+			}
+			_, err = router.RunArgs([]string{"/ip/firewall/nat/" + action, "=.id=" + id})
+			if err != nil {
+				writeJSONError(w, http.StatusBadGateway, "failed to update rule")
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+
+		case http.MethodDelete:
+			var data map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
+				writeJSONError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			id := data[".id"]
+			if id == "" {
+				writeJSONError(w, http.StatusBadRequest, ".id is required")
+				return
+			}
+			_, err = router.RunArgs([]string{"/ip/firewall/nat/remove", "=.id=" + id})
+			if err != nil {
+				writeJSONError(w, http.StatusBadGateway, "failed to remove rule")
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+
+		default:
+			w.Header().Set("Allow", "GET, POST, PUT, DELETE")
+			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		}
 	})
 
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {

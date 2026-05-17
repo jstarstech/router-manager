@@ -396,14 +396,14 @@ function PortMapping({ isConnected }) {
         <div className="space-y-4">
           <form
             onSubmit={addMapping}
-            className="flex flex-wrap items-end gap-3 p-3 bg-paper/5 rounded border border-paper/5"
+            className="grid grid-cols-3 sm:flex sm:flex-wrap items-end gap-3 p-3 bg-paper/5 rounded border border-paper/5"
           >
-            <div className="space-y-1">
+            <div className="space-y-1 col-span-1 sm:w-auto">
               <label className="block text-[10px] uppercase opacity-50 font-mono">
                 Proto
               </label>
               <select
-                className="bg-ink text-rust border border-rust/20 rounded px-2 py-1.5 text-xs font-mono outline-none"
+                className="w-full bg-ink text-rust border border-rust/20 rounded px-2 py-1.5 text-xs font-mono outline-none"
                 value={form.protocol}
                 onChange={(e) => setForm({ ...form, protocol: e.target.value })}
               >
@@ -411,7 +411,7 @@ function PortMapping({ isConnected }) {
                 <option value="udp">UDP</option>
               </select>
             </div>
-            <div className="space-y-1 flex-1 min-w-[60px]">
+            <div className="space-y-1 col-span-1 sm:flex-1 sm:min-w-[60px]">
               <label className="block text-[10px] uppercase opacity-50 font-mono">
                 Ext. Port
               </label>
@@ -425,7 +425,7 @@ function PortMapping({ isConnected }) {
                 }
               />
             </div>
-            <div className="space-y-1 flex-1 min-w-[60px]">
+            <div className="space-y-1 col-span-1 sm:flex-1 sm:min-w-[60px]">
               <label className="block text-[10px] uppercase opacity-50 font-mono">
                 Int. Port
               </label>
@@ -439,7 +439,7 @@ function PortMapping({ isConnected }) {
                 }
               />
             </div>
-            <div className="space-y-1 flex-[2] min-w-[100px]">
+            <div className="space-y-1 col-span-2 sm:flex-[2] sm:min-w-[100px]">
               <label className="block text-[10px] uppercase opacity-50 font-mono">
                 Comment
               </label>
@@ -456,7 +456,7 @@ function PortMapping({ isConnected }) {
             <button
               type="submit"
               disabled={loading || !isConnected}
-              className="bg-rust text-ink px-4 py-1.5 rounded text-xs font-bold uppercase tracking-wider hover:bg-rust/90 active:scale-95 transition-all disabled:opacity-50 disabled:pointer-events-none h-[31px]"
+              className="col-span-1 w-full sm:w-auto bg-rust text-ink px-4 py-1.5 rounded text-xs font-bold uppercase tracking-wider hover:bg-rust/90 active:scale-95 transition-all disabled:opacity-50 disabled:pointer-events-none h-[31px]"
             >
               Add
             </button>

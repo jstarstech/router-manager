@@ -11,6 +11,7 @@ tables for the client's source-IP rule.
 - See the IP address detected for your current client.
 - View DHCP lease details for the current client IP.
 - One-click conversion of a dynamic DHCP lease into a static lease.
+- Port Mapping add/edit/enable/disable for the current client IP.
 - Switch the routing table for the current client's source-IP rule.
 - Bridge host lookup to show the physical/interface port for the client MAC.
 - Single-binary deployment with the built web UI embedded.

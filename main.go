@@ -753,7 +753,19 @@ func main() {
 		}
 	})
 
-	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/health", handleHealth(config, cache))
+
+	log.Printf("Router Manager %s", Version)
+	log.Printf("Server listening on http://%s:%d", config.Server.Host, config.Server.Port)
+
+	if err := http.ListenAndServe(fmt.Sprintf("%s:%d", config.Server.Host, config.Server.Port), mux); err != nil {
+		fatal(slogger, "Could not start server", err)
+		os.Exit(2)
+	}
+}
+
+func handleHealth(config Config, cache *CacheManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			w.Header().Set("Allow", http.MethodGet)
 			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -777,13 +789,5 @@ func main() {
 				"info":    info,
 			},
 		})
-	})
-
-	log.Printf("Router Manager %s", Version)
-	log.Printf("Server listening on http://%s:%d", config.Server.Host, config.Server.Port)
-
-	if err := http.ListenAndServe(fmt.Sprintf("%s:%d", config.Server.Host, config.Server.Port), mux); err != nil {
-		fatal(slogger, "Could not start server", err)
-		os.Exit(2)
 	}
 }

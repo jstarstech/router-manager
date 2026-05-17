@@ -875,8 +875,7 @@ function AppContent({
               color: "color-mix(in srgb, var(--color-paper) 40%, transparent)",
             }}
           >
-            A high-performance control interface for RouterOS network devices,
-            optimized for real-time monitoring and routing management.
+            Dashboard to manage network access, open ports, and routing preferences.
           </p>
 
           <HealthStatusBar

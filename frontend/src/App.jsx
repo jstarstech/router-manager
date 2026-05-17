@@ -456,7 +456,7 @@ function PortMapping({ isConnected }) {
             <button
               type="submit"
               disabled={loading || !isConnected}
-              className="col-span-1 w-full sm:w-auto bg-rust text-ink px-4 py-1.5 rounded text-xs font-bold uppercase tracking-wider hover:bg-rust/90 active:scale-95 transition-all disabled:opacity-50 disabled:pointer-events-none h-[31px]"
+              className="col-span-1 w-full sm:w-auto bg-rust text-ink px-4 py-1.5 rounded text-xs font-bold uppercase tracking-wider hover:bg-rust/90 active:scale-95 transition-all disabled:opacity-50 disabled:pointer-events-none h-[31px] cursor-pointer"
             >
               Add
             </button>
@@ -560,7 +560,7 @@ function PortMapping({ isConnected }) {
                           onClick={() => toggleMapping(m[".id"], m.disabled)}
                           disabled={m.dynamic === "true"}
                           title={m.dynamic === "true" ? "Dynamic rules cannot be disabled manually" : ""}
-                          className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded transition-colors ${m.dynamic === "true" ? "bg-paper/5 text-paper/20 cursor-not-allowed" : m.disabled === "true" ? "bg-paper/10 text-paper/40" : "bg-rust/20 text-rust"}`}
+                          className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded transition-colors ${m.dynamic === "true" ? "bg-paper/5 text-paper/20 cursor-not-allowed" : m.disabled === "true" ? "bg-paper/10 text-paper/40 cursor-pointer" : "bg-rust/20 text-rust cursor-pointer"}`}
                         >
                           {m.disabled === "true" ? "Disabled" : "Active"}
                         </button>
@@ -568,7 +568,7 @@ function PortMapping({ isConnected }) {
                           onClick={() => deleteMapping(m[".id"])}
                           disabled={m.dynamic === "true"}
                           title={m.dynamic === "true" ? "Dynamic rules cannot be removed manually" : ""}
-                          className={`p-1.5 transition-colors ${m.dynamic === "true" ? "text-paper/5 cursor-not-allowed" : "text-paper/20 hover:text-red-400"}`}
+                          className={`p-1.5 transition-colors ${m.dynamic === "true" ? "text-paper/5 cursor-not-allowed" : "text-paper/20 hover:text-red-400 cursor-pointer"}`}
                         >
                           <svg
                             className="w-3 h-3"

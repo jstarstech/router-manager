@@ -56,16 +56,7 @@ func (m *RouterManager) getClient() (*routeros.Client, error) {
 	defer m.mu.Unlock()
 
 	if m.client != nil {
-		// Check if connection is still alive by running a no-op command
-		// or checking an internal state if available.
-		// RunArgs is safer to check actual connectivity.
-		_, err := m.client.RunArgs([]string{"/system/identity/print"})
-		if err == nil {
-			return m.client, nil
-		}
-		// Connection lost, close and try to reconnect
-		m.client.Close()
-		m.client = nil
+		return m.client, nil
 	}
 
 	client, err := dial(m.config)
@@ -74,8 +65,25 @@ func (m *RouterManager) getClient() (*routeros.Client, error) {
 	}
 
 	client.SetLogHandler(m.handler)
-	client.Async()
+	errChan := client.Async()
 	m.client = client
+
+	// Background listener for connection errors
+	go func(c *routeros.Client, ec <-chan error) {
+		for err := range ec {
+			if err != nil {
+				log.Printf("Router connection error: %v", err)
+				m.mu.Lock()
+				if m.client == c {
+					m.client = nil
+				}
+				m.mu.Unlock()
+				c.Close()
+				break
+			}
+		}
+	}(client, errChan)
+
 	return m.client, nil
 }
 
@@ -84,7 +92,22 @@ func (m *RouterManager) RunArgs(args []string) (*routeros.Reply, error) {
 	if err != nil {
 		return nil, err
 	}
-	return client.RunArgs(args)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	res, err := client.RunArgsContext(ctx, args)
+	if err != nil {
+		// If we get an error, especially a timeout, invalidate the client
+		m.mu.Lock()
+		if m.client == client {
+			m.client = nil
+		}
+		m.mu.Unlock()
+		client.Close()
+		return nil, err
+	}
+	return res, nil
 }
 
 type CacheManager struct {
@@ -248,11 +271,15 @@ var staticFiles embed.FS
 var Version = "dev-build"
 
 func dial(config Config) (*routeros.Client, error) {
+	address := fmt.Sprintf("%s:%d", config.Router.Host, config.Router.Port)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	if config.Router.UseTLS {
-		return routeros.DialTLS(fmt.Sprintf("%s:%d", config.Router.Host, config.Router.Port), config.Router.Username, config.Router.Password, nil)
+		return routeros.DialTLSContext(ctx, address, config.Router.Username, config.Router.Password, nil)
 	}
 
-	return routeros.Dial(fmt.Sprintf("%s:%d", config.Router.Host, config.Router.Port), config.Router.Username, config.Router.Password)
+	return routeros.DialContext(ctx, address, config.Router.Username, config.Router.Password)
 }
 
 func fatal(log *slog.Logger, message string, err error) {

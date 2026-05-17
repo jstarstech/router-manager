@@ -659,9 +659,9 @@ function IPRuleTable({ isConnected }) {
                 selected below.
               </p>
             </div>
-            <div className="relative group">
+            <div className="relative group self-start sm:self-auto w-full sm:w-auto">
               <select
-                className="appearance-none bg-ink text-rust border border-rust/20 hover:border-rust/40 active:border-rust focus:border-rust outline-none rounded px-4 py-2 text-sm font-mono transition-all pr-10 cursor-pointer disabled:cursor-not-allowed"
+                className="appearance-none w-full bg-ink text-rust border border-rust/20 hover:border-rust/40 active:border-rust focus:border-rust outline-none rounded px-4 py-2 text-sm font-mono transition-all pr-10 cursor-pointer disabled:cursor-not-allowed"
                 value={selectedTable}
                 onChange={changeTable}
                 disabled={!isConnected}

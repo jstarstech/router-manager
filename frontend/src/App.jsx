@@ -282,10 +282,13 @@ function HealthStatusBar({
 function PortMapping({ isConnected }) {
   const [res, setRes] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [editingCommentId, setEditingCommentId] = useState(null);
+  const [editCommentValue, setEditCommentValue] = useState("");
   const [form, setForm] = useState({
     protocol: "tcp",
     externalPort: "",
     internalPort: "",
+    comment: "",
   });
 
   const mappings = [...(res?.data || [])].sort((a, b) => {
@@ -310,6 +313,18 @@ function PortMapping({ isConnected }) {
 
   const addMapping = async (e) => {
     e.preventDefault();
+    
+    const ep = parseInt(form.externalPort, 10);
+    const ip = parseInt(form.internalPort, 10);
+    if (isNaN(ep) || ep < 1 || ep > 65535) {
+      alert("External Port must be a valid number between 1 and 65535.");
+      return;
+    }
+    if (isNaN(ip) || ip < 1 || ip > 65535) {
+      alert("Internal Port must be a valid number between 1 and 65535.");
+      return;
+    }
+
     setLoading(true);
     try {
       await fetchJSON("/api/port-mapping", {
@@ -317,7 +332,7 @@ function PortMapping({ isConnected }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
       });
-      setForm({ ...form, externalPort: "", internalPort: "" });
+      setForm({ ...form, externalPort: "", internalPort: "", comment: "" });
       fetchMappings();
     } catch (e) {
       alert(e.message);
@@ -336,6 +351,23 @@ function PortMapping({ isConnected }) {
           disabled: currentDisabled === "true" ? "false" : "true",
         }),
       });
+      fetchMappings();
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+
+  const saveComment = async (id) => {
+    try {
+      await fetchJSON("/api/port-mapping", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ".id": id,
+          comment: editCommentValue,
+        }),
+      });
+      setEditingCommentId(null);
       fetchMappings();
     } catch (e) {
       alert(e.message);
@@ -379,7 +411,7 @@ function PortMapping({ isConnected }) {
                 <option value="udp">UDP</option>
               </select>
             </div>
-            <div className="space-y-1 flex-1 min-w-[80px]">
+            <div className="space-y-1 flex-1 min-w-[60px]">
               <label className="block text-[10px] uppercase opacity-50 font-mono">
                 Ext. Port
               </label>
@@ -393,7 +425,7 @@ function PortMapping({ isConnected }) {
                 }
               />
             </div>
-            <div className="space-y-1 flex-1 min-w-[80px]">
+            <div className="space-y-1 flex-1 min-w-[60px]">
               <label className="block text-[10px] uppercase opacity-50 font-mono">
                 Int. Port
               </label>
@@ -404,6 +436,20 @@ function PortMapping({ isConnected }) {
                 value={form.internalPort}
                 onChange={(e) =>
                   setForm({ ...form, internalPort: e.target.value })
+                }
+              />
+            </div>
+            <div className="space-y-1 flex-[2] min-w-[100px]">
+              <label className="block text-[10px] uppercase opacity-50 font-mono">
+                Comment
+              </label>
+              <input
+                type="text"
+                className="w-full bg-ink text-rust border border-rust/20 rounded px-3 py-1.5 text-xs font-mono outline-none focus:border-rust/50"
+                placeholder="Optional description..."
+                value={form.comment}
+                onChange={(e) =>
+                  setForm({ ...form, comment: e.target.value })
                 }
               />
             </div>
@@ -428,6 +474,9 @@ function PortMapping({ isConnected }) {
                   </th>
                   <th className="py-2 text-[10px] uppercase opacity-40 font-mono font-normal">
                     Internal
+                  </th>
+                  <th className="py-2 text-[10px] uppercase opacity-40 font-mono font-normal">
+                    Comment
                   </th>
                   <th className="py-2 text-[10px] uppercase opacity-40 font-mono font-normal text-right">
                     Actions
@@ -457,6 +506,53 @@ function PortMapping({ isConnected }) {
                     </td>
                     <td className="py-3 text-xs font-mono opacity-70">
                       {m.internalPort}
+                    </td>
+                    <td className="py-3 text-xs font-mono opacity-80 truncate max-w-[150px]">
+                      {editingCommentId === m[".id"] ? (
+                        <div className="flex gap-1">
+                          <input
+                            type="text"
+                            autoFocus
+                            className="w-full bg-ink text-rust border border-rust/20 rounded px-1.5 py-0.5 text-[10px] outline-none"
+                            value={editCommentValue}
+                            onChange={(e) => setEditCommentValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") saveComment(m[".id"]);
+                              if (e.key === "Escape") setEditingCommentId(null);
+                            }}
+                          />
+                          <button
+                            onClick={() => saveComment(m[".id"])}
+                            className="bg-rust/20 text-rust px-1.5 py-0.5 rounded text-[10px] hover:bg-rust hover:text-ink transition-colors"
+                          >
+                            Save
+                          </button>
+                        </div>
+                      ) : (
+                        <div
+                          className="flex items-center gap-2 group/edit cursor-pointer"
+                          onClick={() => {
+                            if (m.dynamic !== "true") {
+                              setEditingCommentId(m[".id"]);
+                              setEditCommentValue(m.comment || "");
+                            }
+                          }}
+                        >
+                          <span className={!m.comment ? "opacity-30 italic text-[10px]" : ""} title={m.comment}>
+                            {m.comment || "no comment"}
+                          </span>
+                          {m.dynamic !== "true" && (
+                            <svg
+                              className="w-3 h-3 opacity-0 group-hover/edit:opacity-50 transition-opacity"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                            </svg>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td className="py-3 text-right">
                       <div className="flex justify-end items-center gap-2">
@@ -495,7 +591,7 @@ function PortMapping({ isConnected }) {
                 {mappings.length === 0 && (
                   <tr>
                     <td
-                      colSpan="4"
+                      colSpan="5"
                       className="py-8 text-center text-[10px] uppercase opacity-20 tracking-widest"
                     >
                       No port mappings defined

@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -645,11 +646,22 @@ func main() {
 			proto := data["protocol"]
 			extPort := data["externalPort"]
 			intPort := data["internalPort"]
+			comment := strings.TrimSpace(data["comment"])
 			if proto == "" || extPort == "" || intPort == "" {
 				writeJSONError(w, http.StatusBadRequest, "protocol, externalPort, and internalPort are required")
 				return
 			}
-			comment := fmt.Sprintf("pm-%s-%s-%s", userIP, proto, extPort)
+			if ep, err := strconv.Atoi(extPort); err != nil || ep < 1 || ep > 65535 {
+				writeJSONError(w, http.StatusBadRequest, "externalPort must be a valid port number (1-65535)")
+				return
+			}
+			if ip, err := strconv.Atoi(intPort); err != nil || ip < 1 || ip > 65535 {
+				writeJSONError(w, http.StatusBadRequest, "internalPort must be a valid port number (1-65535)")
+				return
+			}
+			if comment == "" {
+				comment = fmt.Sprintf("pm-%s-%s-%s", userIP, proto, extPort)
+			}
 			_, err = router.RunArgs([]string{
 				"/ip/firewall/nat/add",
 				"=chain=dstnat",
@@ -673,20 +685,35 @@ func main() {
 				return
 			}
 			id := data[".id"]
-			disabled := data["disabled"]
-			if id == "" || disabled == "" {
-				writeJSONError(w, http.StatusBadRequest, ".id and disabled are required")
+			if id == "" {
+				writeJSONError(w, http.StatusBadRequest, ".id is required")
 				return
 			}
-			action := "enable"
-			if disabled == "true" || disabled == "yes" {
-				action = "disable"
+			
+			if disabled, ok := data["disabled"]; ok {
+				action := "enable"
+				if disabled == "true" || disabled == "yes" {
+					action = "disable"
+				}
+				_, err = router.RunArgs([]string{"/ip/firewall/nat/" + action, "=.id=" + id})
+				if err != nil {
+					writeJSONError(w, http.StatusBadGateway, "failed to update rule state")
+					return
+				}
 			}
-			_, err = router.RunArgs([]string{"/ip/firewall/nat/" + action, "=.id=" + id})
-			if err != nil {
-				writeJSONError(w, http.StatusBadGateway, "failed to update rule")
-				return
+
+			if comment, ok := data["comment"]; ok {
+				trimmedComment := strings.TrimSpace(comment)
+				// If the user tries to save an entirely empty comment after trimming, 
+				// we could either allow it (empty string in mikrotik) or reset to default.
+				// Since RouterOS allows empty comments, we will pass the trimmed string.
+				_, err = router.RunArgs([]string{"/ip/firewall/nat/set", "=.id=" + id, "=comment=" + trimmedComment})
+				if err != nil {
+					writeJSONError(w, http.StatusBadGateway, "failed to update rule comment")
+					return
+				}
 			}
+
 			writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 
 		case http.MethodDelete:

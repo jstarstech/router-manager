@@ -436,7 +436,10 @@ function PortMapping({ isConnected }) {
                     <td className="py-3 text-xs font-mono uppercase">
                       {m.protocol}
                       {m.dynamic === "true" && (
-                        <span className="ml-2 px-1 bg-gold/10 text-gold text-[8px] border border-gold/20 rounded-sm">
+                        <span
+                          className="ml-2 px-1 bg-gold/10 text-gold text-[8px] border border-gold/20 rounded-sm cursor-help"
+                          title="Dynamic rule automatically created by UPnP or NAT-PMP"
+                        >
                           {m.comment?.toLowerCase().includes("upnp")
                             ? "UPNP"
                             : m.comment?.toLowerCase().includes("nat-pmp")
@@ -456,6 +459,7 @@ function PortMapping({ isConnected }) {
                         <button
                           onClick={() => toggleMapping(m[".id"], m.disabled)}
                           disabled={m.dynamic === "true"}
+                          title={m.dynamic === "true" ? "Dynamic rules cannot be disabled manually" : ""}
                           className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded transition-colors ${m.dynamic === "true" ? "bg-paper/5 text-paper/20 cursor-not-allowed" : m.disabled === "true" ? "bg-paper/10 text-paper/40" : "bg-rust/20 text-rust"}`}
                         >
                           {m.disabled === "true" ? "Disabled" : "Active"}
@@ -463,6 +467,7 @@ function PortMapping({ isConnected }) {
                         <button
                           onClick={() => deleteMapping(m[".id"])}
                           disabled={m.dynamic === "true"}
+                          title={m.dynamic === "true" ? "Dynamic rules cannot be removed manually" : ""}
                           className={`p-1.5 transition-colors ${m.dynamic === "true" ? "text-paper/5 cursor-not-allowed" : "text-paper/20 hover:text-red-400"}`}
                         >
                           <svg

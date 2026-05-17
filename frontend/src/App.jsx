@@ -288,7 +288,11 @@ function PortMapping({ isConnected }) {
     internalPort: "",
   });
 
-  const mappings = res?.data || [];
+  const mappings = [...(res?.data || [])].sort((a, b) => {
+    const portA = parseInt(a.externalPort) || 0;
+    const portB = parseInt(b.externalPort) || 0;
+    return portA - portB;
+  });
   const isDisabled = res?.status === "error";
 
   const fetchMappings = async () => {

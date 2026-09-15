@@ -25,8 +25,9 @@ import (
 
 type Config struct {
 	Server struct {
-		Port int    `mapstructure:"port"`
-		Host string `mapstructure:"host"`
+		Port           int      `mapstructure:"port"`
+		Host           string   `mapstructure:"host"`
+		TrustedProxies []string `mapstructure:"trustedProxies"`
 	} `mapstructure:"server"`
 	Router struct {
 		Host     string `mapstructure:"host"`
@@ -304,16 +305,28 @@ func writeJSONError(w http.ResponseWriter, status int, message string) {
 	})
 }
 
-func requestUserIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		ips := strings.Split(xff, ",")
-		return strings.TrimSpace(ips[0])
-	}
-	userIP, _, err := net.SplitHostPort(r.RemoteAddr)
+func requestUserIP(r *http.Request, trustedProxies []string) string {
+	remoteIP, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		remoteIP = r.RemoteAddr
 	}
-	return userIP
+
+	trusted := false
+	for _, proxy := range trustedProxies {
+		if remoteIP == proxy {
+			trusted = true
+			break
+		}
+	}
+
+	if trusted {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			ips := strings.Split(xff, ",")
+			return strings.TrimSpace(ips[0])
+		}
+	}
+
+	return remoteIP
 }
 
 func main() {
@@ -446,7 +459,7 @@ func main() {
 			return
 		}
 
-		userIP := requestUserIP(r)
+		userIP := requestUserIP(r, config.Server.TrustedProxies)
 
 		if r.Method == http.MethodPost {
 			var data map[string]string
@@ -526,7 +539,7 @@ func main() {
 			return
 		}
 
-		userIP := requestUserIP(r)
+		userIP := requestUserIP(r, config.Server.TrustedProxies)
 
 		lease, bridgePort, ok := cache.GetIPInfo(userIP)
 		if !ok {
@@ -558,7 +571,7 @@ func main() {
 			return
 		}
 
-		userIP := requestUserIP(r)
+		userIP := requestUserIP(r, config.Server.TrustedProxies)
 
 		addr, err := netip.ParseAddr(userIP)
 		if err != nil {
@@ -614,7 +627,7 @@ func main() {
 			return
 		}
 
-		userIP := requestUserIP(r)
+		userIP := requestUserIP(r, config.Server.TrustedProxies)
 
 		switch r.Method {
 		case http.MethodGet:
@@ -794,7 +807,7 @@ func handleHealth(config Config, cache *CacheManager) http.HandlerFunc {
 			return
 		}
 
-		userIP := requestUserIP(r)
+		userIP := requestUserIP(r, config.Server.TrustedProxies)
 
 		cache.mu.RLock()
 		info := make(map[string]string)

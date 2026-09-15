@@ -9,10 +9,11 @@ import (
 
 func TestRequestUserIP(t *testing.T) {
 	tests := []struct {
-		name          string
-		remoteAddr    string
-		xForwardedFor string
-		expected      string
+		name           string
+		remoteAddr     string
+		xForwardedFor  string
+		trustedProxies []string
+		expected       string
 	}{
 		{
 			name:          "Basic RemoteAddr",
@@ -33,22 +34,32 @@ func TestRequestUserIP(t *testing.T) {
 			expected:      "10.0.0.5", // net.SplitHostPort fails, returns full string
 		},
 		{
-			name:          "Single X-Forwarded-For",
-			remoteAddr:    "127.0.0.1:54321",
-			xForwardedFor: "172.16.0.10",
-			expected:      "172.16.0.10",
+			name:           "Single X-Forwarded-For Trusted",
+			remoteAddr:     "127.0.0.1:54321",
+			xForwardedFor:  "172.16.0.10",
+			trustedProxies: []string{"127.0.0.1"},
+			expected:       "172.16.0.10",
 		},
 		{
-			name:          "Multiple X-Forwarded-For",
-			remoteAddr:    "127.0.0.1:54321",
-			xForwardedFor: "203.0.113.5, 198.51.100.10",
-			expected:      "203.0.113.5",
+			name:           "Single X-Forwarded-For Untrusted",
+			remoteAddr:     "127.0.0.1:54321",
+			xForwardedFor:  "172.16.0.10",
+			trustedProxies: []string{"192.168.1.1"},
+			expected:       "127.0.0.1",
 		},
 		{
-			name:          "Whitespace in X-Forwarded-For",
-			remoteAddr:    "127.0.0.1:54321",
-			xForwardedFor: "  10.10.10.10  , 192.168.1.1",
-			expected:      "10.10.10.10",
+			name:           "Multiple X-Forwarded-For",
+			remoteAddr:     "127.0.0.1:54321",
+			xForwardedFor:  "203.0.113.5, 198.51.100.10",
+			trustedProxies: []string{"127.0.0.1"},
+			expected:       "203.0.113.5",
+		},
+		{
+			name:           "Whitespace in X-Forwarded-For",
+			remoteAddr:     "127.0.0.1:54321",
+			xForwardedFor:  "  10.10.10.10  , 192.168.1.1",
+			trustedProxies: []string{"127.0.0.1"},
+			expected:       "10.10.10.10",
 		},
 	}
 
@@ -60,7 +71,7 @@ func TestRequestUserIP(t *testing.T) {
 				req.Header.Set("X-Forwarded-For", tt.xForwardedFor)
 			}
 
-			ip := requestUserIP(req)
+			ip := requestUserIP(req, tt.trustedProxies)
 			if ip != tt.expected {
 				t.Errorf("requestUserIP() = %v, want %v", ip, tt.expected)
 			}

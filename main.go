@@ -702,7 +702,14 @@ func main() {
 				writeJSONError(w, http.StatusBadRequest, ".id is required")
 				return
 			}
-			
+
+			// Verify ownership
+			checkRes, err := router.RunArgs([]string{"/ip/firewall/nat/print", "?.id=" + id})
+			if err != nil || len(checkRes.Re) == 0 || checkRes.Re[0].Map["to-addresses"] != userIP {
+				writeJSONError(w, http.StatusForbidden, "rule not found or access denied")
+				return
+			}
+
 			if disabled, ok := data["disabled"]; ok {
 				action := "enable"
 				if disabled == "true" || disabled == "yes" {
@@ -740,6 +747,14 @@ func main() {
 				writeJSONError(w, http.StatusBadRequest, ".id is required")
 				return
 			}
+
+			// Verify ownership
+			checkRes, err := router.RunArgs([]string{"/ip/firewall/nat/print", "?.id=" + id})
+			if err != nil || len(checkRes.Re) == 0 || checkRes.Re[0].Map["to-addresses"] != userIP {
+				writeJSONError(w, http.StatusForbidden, "rule not found or access denied")
+				return
+			}
+
 			_, err = router.RunArgs([]string{"/ip/firewall/nat/remove", "=.id=" + id})
 			if err != nil {
 				writeJSONError(w, http.StatusBadGateway, "failed to remove rule")

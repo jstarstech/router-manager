@@ -462,6 +462,13 @@ func main() {
 				return
 			}
 
+			// Verify ownership
+			checkRes, err := router.RunArgs([]string{"/routing/rule/print", "?.id=" + data[".id"]})
+			if err != nil || len(checkRes.Re) == 0 || checkRes.Re[0].Map["src-address"] != userIP+"/32" {
+				writeJSONError(w, http.StatusForbidden, "rule not found or access denied")
+				return
+			}
+
 			_, err = router.RunArgs([]string{"/routing/rule/set", "=.id=" + data[".id"], "=table=" + data["table"]})
 			if err != nil {
 				log.Println("Operation failed", err)

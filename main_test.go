@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -14,6 +16,9 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/go-routeros/routeros/v3"
+	"github.com/go-routeros/routeros/v3/proto"
 )
 
 func TestRequestUserIP(t *testing.T) {
@@ -391,5 +396,25 @@ func TestStartPollingDoesNotBlock(t *testing.T) {
 	cache.StartPolling(ctx)
 	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
 		t.Fatalf("StartPolling blocked startup for %v", elapsed)
+	}
+}
+
+func TestIsDeviceError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"trap keeps connection", &routeros.DeviceError{Sentence: &proto.Sentence{Word: "!trap"}}, true},
+		{"fatal drops connection", &routeros.DeviceError{Sentence: &proto.Sentence{Word: "!fatal"}}, false},
+		{"transport error drops connection", errors.New("i/o timeout"), false},
+		{"wrapped trap keeps connection", fmt.Errorf("wrapped: %w", &routeros.DeviceError{Sentence: &proto.Sentence{Word: "!trap"}}), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isDeviceError(tt.err); got != tt.want {
+				t.Errorf("isDeviceError() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

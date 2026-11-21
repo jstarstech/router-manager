@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"embed"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io/fs"
@@ -106,17 +107,28 @@ func (m *RouterManager) RunArgs(args []string) (*routeros.Reply, error) {
 	defer cancel()
 
 	res, err := client.RunArgsContext(ctx, args)
-	if err != nil {
-		// If we get an error, especially a timeout, invalidate the client
-		m.mu.Lock()
-		if m.client == client {
-			m.client = nil
-		}
-		m.mu.Unlock()
-		client.Close()
+	if err == nil {
+		return res, nil
+	}
+
+	// A device-level rejection (!trap) leaves the connection healthy. Only
+	// transport failures, and !fatal, mean the client may be stuck.
+	if isDeviceError(err) {
 		return nil, err
 	}
-	return res, nil
+
+	m.mu.Lock()
+	if m.client == client {
+		m.client = nil
+	}
+	m.mu.Unlock()
+	client.Close()
+	return nil, err
+}
+
+func isDeviceError(err error) bool {
+	var deviceErr *routeros.DeviceError
+	return errors.As(err, &deviceErr) && deviceErr.Sentence.Word != "!fatal"
 }
 
 type CacheManager struct {

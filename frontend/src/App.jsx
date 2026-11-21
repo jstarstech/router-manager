@@ -765,7 +765,7 @@ function AppContent({
 }) {
   const healthResponse = use(healthPromise);
   const version = healthResponse?.version || "dev";
-  const isConnected = healthResponse?.connected !== false;
+  const isConnected = healthResponse?.connected === true;
 
   useEffect(() => {
     let isCancelled = false;

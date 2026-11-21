@@ -418,3 +418,26 @@ func TestIsDeviceError(t *testing.T) {
 		})
 	}
 }
+
+func TestHandleHealthDisconnected(t *testing.T) {
+	cache := &CacheManager{Connected: false, Health: map[string]string{}}
+	handler := handleHealth(Config{}, cache)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("got %d, want 200", rr.Code)
+	}
+	var response map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	if response["status"] != "error" {
+		t.Errorf("Expected status 'error', got %v", response["status"])
+	}
+	if response["connected"] != false {
+		t.Errorf("Expected connected false, got %v", response["connected"])
+	}
+}

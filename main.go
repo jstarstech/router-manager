@@ -927,8 +927,13 @@ func handleHealth(config Config, cache *CacheManager) http.HandlerFunc {
 		isConnected := cache.Connected
 		cache.mu.RUnlock()
 
+		status := "ok"
+		if !isConnected {
+			status = "error"
+		}
+
 		writeJSON(w, http.StatusOK, map[string]any{
-			"status":    "ok",
+			"status":    status,
 			"version":   Version,
 			"connected": isConnected,
 			"data": map[string]any{

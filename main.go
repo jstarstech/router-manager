@@ -883,7 +883,15 @@ func main() {
 	log.Printf("Router Manager %s", Version)
 	log.Printf("Server listening on http://%s:%d", config.Server.Host, config.Server.Port)
 
-	if err := http.ListenAndServe(fmt.Sprintf("%s:%d", config.Server.Host, config.Server.Port), mux); err != nil {
+	server := &http.Server{
+		Addr:              fmt.Sprintf("%s:%d", config.Server.Host, config.Server.Port),
+		Handler:           http.MaxBytesHandler(mux, 1<<20),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		fatal(slogger, "Could not start server", err)
 		os.Exit(2)
 	}

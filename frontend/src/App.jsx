@@ -615,17 +615,27 @@ function IPRuleTable({ isConnected }) {
   const tables = resTables?.data || [];
 
   useEffect(() => {
+    let isCancelled = false;
+
     async function poll() {
       const [_resRule, _resTables] = await Promise.all([
-        fetchJSON("/api/ip-rule"),
-        fetchJSON("/api/ip-rule-tables"),
+        fetchJSONOrError("/api/ip-rule"),
+        fetchJSONOrError("/api/ip-rule-tables"),
       ]);
+      if (isCancelled) return;
 
       setRes(_resRule);
       setSelectedTable(_resRule.data?.table || "");
       setTables(_resTables);
+
+      setTimeout(poll, 5000);
     }
+
     poll();
+
+    return () => {
+      isCancelled = true;
+    };
   }, []);
 
   const changeTable = async (e) => {

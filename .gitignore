@@ -1,3 +1,10 @@
 frontend/dist/
 frontend/node_modules/
 config.yaml
+
+# build artifacts
+/app
+/app-*
+/app.exe
+/router-manager
+/release/

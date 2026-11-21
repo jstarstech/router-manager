@@ -257,7 +257,7 @@ func (c *CacheManager) updateBridgeHosts() {
 	for _, re := range res.Re {
 		mac := re.Map["mac-address"]
 		if mac != "" {
-			hosts[mac] = re.Map["on-interface"]
+			hosts[strings.ToLower(mac)] = re.Map["on-interface"]
 		}
 	}
 	c.mu.Lock()
@@ -286,7 +286,7 @@ func (c *CacheManager) GetIPInfo(userIP string) (map[string]string, string, bool
 		mac = lease["mac-address"]
 	}
 
-	bridgePort := c.BridgeHosts[mac]
+	bridgePort := c.BridgeHosts[strings.ToLower(mac)]
 	return lease, bridgePort, true
 }
 

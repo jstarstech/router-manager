@@ -135,7 +135,7 @@ func TestCacheManagerGetIPInfo(t *testing.T) {
 		},
 		BridgeHosts: map[string]string{
 			"00:11:22:33:44:55": "ether1",
-			"AA:BB:CC:DD:EE:FF": "wlan1",
+			"aa:bb:cc:dd:ee:ff": "wlan1",
 		},
 	}
 

@@ -279,20 +279,51 @@ var staticFiles embed.FS
 
 var Version = "dev-build"
 
+const defaultDialTimeout = 5 * time.Second
+
+// Overridden in tests to keep them fast.
+var dialTimeout = defaultDialTimeout
+
 func dial(config Config) (*routeros.Client, error) {
 	address := fmt.Sprintf("%s:%d", config.Router.Host, config.Router.Port)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), dialTimeout)
 	defer cancel()
 
+	var conn net.Conn
+	var err error
 	if config.Router.UseTLS {
 		tlsConfig, err := buildTLSConfig(config)
 		if err != nil {
 			return nil, err
 		}
-		return routeros.DialTLSContext(ctx, address, config.Router.Username, config.Router.Password, tlsConfig)
+		conn, err = (&tls.Dialer{Config: tlsConfig}).DialContext(ctx, "tcp", address)
+	} else {
+		conn, err = (&net.Dialer{}).DialContext(ctx, "tcp", address)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("could not connect to router os: %w", err)
 	}
 
-	return routeros.DialContext(ctx, address, config.Router.Username, config.Router.Password)
+	// Login runs in sync mode, where the library ignores ctx on reads, so a
+	// silently hung router would block forever without a connection deadline.
+	if err := conn.SetDeadline(time.Now().Add(dialTimeout)); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("set dial deadline: %w", err)
+	}
+	client, err := routeros.NewClient(conn)
+	if err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("could not create router os client: %w", err)
+	}
+	if err := client.Login(config.Router.Username, config.Router.Password); err != nil {
+		client.Close()
+		return nil, fmt.Errorf("could not login: %w", err)
+	}
+	if err := conn.SetDeadline(time.Time{}); err != nil {
+		client.Close()
+		return nil, fmt.Errorf("clear dial deadline: %w", err)
+	}
+	return client, nil
 }
 
 func buildTLSConfig(config Config) (*tls.Config, error) {

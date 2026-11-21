@@ -3,11 +3,14 @@ package main
 import (
 	"encoding/json"
 	"encoding/pem"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
+	"time"
 )
 
 func TestRequestUserIP(t *testing.T) {
@@ -302,4 +305,48 @@ func TestBuildTLSConfig(t *testing.T) {
 			t.Error("expected caFile to populate RootCAs")
 		}
 	})
+}
+
+func TestDialTimesOutOnSilentRouter(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+		}
+	}()
+
+	_, portStr, err := net.SplitHostPort(ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	oldTimeout := dialTimeout
+	dialTimeout = 300 * time.Millisecond
+	defer func() { dialTimeout = oldTimeout }()
+
+	var config Config
+	config.Router.Host = "127.0.0.1"
+	config.Router.Port = port
+	config.Router.Username = "admin"
+	config.Router.Password = "x"
+
+	start := time.Now()
+	if _, err := dial(config); err == nil {
+		t.Fatal("expected dial to fail against a router that never answers login")
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("dial ignored the timeout, took %v", elapsed)
+	}
 }

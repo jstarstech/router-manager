@@ -200,6 +200,7 @@ func (c *CacheManager) updateHealth() {
 
 	if err != nil {
 		c.Connected = false
+		clear(c.Health)
 		return
 	}
 

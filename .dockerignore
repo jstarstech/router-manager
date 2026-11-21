@@ -1,0 +1,10 @@
+.git
+.github
+.local
+config.yaml
+frontend/node_modules
+frontend/dist
+app
+app-*
+router-manager
+release

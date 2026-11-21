@@ -223,7 +223,7 @@ function HealthStatusBar({
 
           {ipInfoResponse?.status === "ok" ? (
             <>
-              {lease["active-agent-circuit-id"] && (
+              {ipInfoResponse.data?.["bridge-port"] && (
                 <p className="flex items-center">
                   <StatusDot ok={isConnected} />
                   <span className="opacity-60 mr-1 text-[10px] uppercase">

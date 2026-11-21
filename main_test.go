@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"encoding/pem"
+	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -348,5 +351,45 @@ func TestDialTimesOutOnSilentRouter(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > 2*time.Second {
 		t.Fatalf("dial ignored the timeout, took %v", elapsed)
+	}
+}
+
+func TestStartPollingDoesNotBlock(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+		}
+	}()
+	_, portStr, _ := net.SplitHostPort(ln.Addr().String())
+	port, _ := strconv.Atoi(portStr)
+
+	oldTimeout := dialTimeout
+	dialTimeout = 200 * time.Millisecond
+	defer func() { dialTimeout = oldTimeout }()
+
+	var config Config
+	config.Router.Host = "127.0.0.1"
+	config.Router.Port = port
+	config.Router.Username = "admin"
+	config.Router.Password = "x"
+
+	router := NewRouterManager(config, slog.NewTextHandler(io.Discard, nil))
+	cache := NewCacheManager(router)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	start := time.Now()
+	cache.StartPolling(ctx)
+	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
+		t.Fatalf("StartPolling blocked startup for %v", elapsed)
 	}
 }

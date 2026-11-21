@@ -171,11 +171,14 @@ func (c *CacheManager) StartPolling(ctx context.Context) {
 		}
 	}()
 
-	// Initial fetch
-	c.updateHealth()
-	c.updateLeases()
-	c.updateRouting()
-	c.updateBridgeHosts()
+	// Initial fetch, off the startup path so the HTTP server is reachable
+	// even when the router is down.
+	go func() {
+		c.updateHealth()
+		c.updateLeases()
+		c.updateRouting()
+		c.updateBridgeHosts()
+	}()
 }
 
 func (c *CacheManager) updateHealth() {

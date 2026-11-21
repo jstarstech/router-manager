@@ -20,7 +20,9 @@ RUN go build -ldflags="-s -w -X 'main.Version=${VERSION}'" -o router-manager .
 
 FROM alpine:latest
 WORKDIR /app
-COPY --from=backend-builder /app/router-manager .
+RUN addgroup -S app && adduser -S -G app app
+COPY --from=backend-builder --chown=app:app /app/router-manager .
 
+USER app
 EXPOSE 8080
 CMD ["./router-manager"]

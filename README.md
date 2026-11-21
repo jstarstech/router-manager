@@ -97,6 +97,10 @@ Start the server and open the web UI:
 http://localhost:8080
 ```
 
+> **Security:** there is no authentication. Everyone who can reach the web UI
+> can manage port mappings and routing for the IP they connect from. Keep it on
+> a trusted LAN and never expose it to the internet.
+
 ## Development
 
 Clone the repository:

@@ -136,3 +136,34 @@ func TestIPRuleUpdatesOwnRule(t *testing.T) {
 		t.Fatal("expected the rule to be updated")
 	}
 }
+
+func TestPortMappingUpdatesStateAndCommentAtomically(t *testing.T) {
+	mux, calls := newTestServer(t, func(args []string) (*routeros.Reply, error) {
+		if args[0] == "/ip/firewall/nat/print" {
+			return replyWith(map[string]string{".id": "*1", "to-addresses": "192.168.88.50"}), nil
+		}
+		return &routeros.Reply{}, nil
+	})
+
+	rr := doRequest(mux, http.MethodPut, "/api/port-mapping", `{".id":"*1","disabled":"true","comment":" test "}`)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("got %d, want 200; body: %s", rr.Code, rr.Body.String())
+	}
+
+	var sets [][]string
+	for _, call := range *calls {
+		if call[0] == "/ip/firewall/nat/set" {
+			sets = append(sets, call)
+		}
+		if call[0] == "/ip/firewall/nat/enable" || call[0] == "/ip/firewall/nat/disable" {
+			t.Fatalf("expected one atomic set, got separate command %s", call[0])
+		}
+	}
+	if len(sets) != 1 {
+		t.Fatalf("expected one set call, got %d", len(sets))
+	}
+	joined := strings.Join(sets[0], " ")
+	if !strings.Contains(joined, "=disabled=yes") || !strings.Contains(joined, "=comment=test") {
+		t.Fatalf("set call misses fields: %v", sets[0])
+	}
+}

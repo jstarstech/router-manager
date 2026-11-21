@@ -744,26 +744,20 @@ func newMux(config Config, router routerRunner, cache *CacheManager) *http.Serve
 				return
 			}
 
+			setArgs := []string{"/ip/firewall/nat/set", "=.id=" + id}
 			if disabled, ok := data["disabled"]; ok {
-				action := "enable"
+				value := "no"
 				if disabled == "true" || disabled == "yes" {
-					action = "disable"
+					value = "yes"
 				}
-				_, err = router.RunArgs([]string{"/ip/firewall/nat/" + action, "=.id=" + id})
-				if err != nil {
-					writeJSONError(w, http.StatusBadGateway, "failed to update rule state")
-					return
-				}
+				setArgs = append(setArgs, "=disabled="+value)
 			}
-
 			if comment, ok := data["comment"]; ok {
-				trimmedComment := strings.TrimSpace(comment)
-				// If the user tries to save an entirely empty comment after trimming,
-				// we could either allow it (empty string in mikrotik) or reset to default.
-				// Since RouterOS allows empty comments, we will pass the trimmed string.
-				_, err = router.RunArgs([]string{"/ip/firewall/nat/set", "=.id=" + id, "=comment=" + trimmedComment})
-				if err != nil {
-					writeJSONError(w, http.StatusBadGateway, "failed to update rule comment")
+				setArgs = append(setArgs, "=comment="+strings.TrimSpace(comment))
+			}
+			if len(setArgs) > 2 {
+				if _, err = router.RunArgs(setArgs); err != nil {
+					writeJSONError(w, http.StatusBadGateway, "failed to update rule")
 					return
 				}
 			}

@@ -420,92 +420,11 @@ func requestUserIP(r *http.Request, trustedProxies []string) string {
 	return remoteIP
 }
 
-func main() {
-	viper.SetConfigName("config")
-	viper.SetConfigType("yaml")
-	viper.AddConfigPath(".")
+type routerRunner interface {
+	RunArgs(args []string) (*routeros.Reply, error)
+}
 
-	viper.SetDefault("server.host", "0.0.0.0")
-	viper.SetDefault("server.port", 8080)
-	viper.SetDefault("router.host", "192.168.88.1")
-	viper.SetDefault("router.port", 8728)
-	viper.SetDefault("router.username", "admin")
-	viper.SetDefault("router.password", "")
-	viper.SetDefault("router.useTLS", false)
-	viper.SetDefault("features.portMapping", true)
-
-	if err := viper.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
-			log.Println("No config file found, using defaults/env only")
-
-		} else {
-			log.Fatalf("Error reading config file: %s", err)
-			os.Exit(2)
-		}
-	}
-
-	var config Config
-	if err := viper.Unmarshal(&config); err != nil {
-		log.Fatalf("Unable to decode into struct: %v", err)
-		os.Exit(2)
-	}
-
-	var err error
-	if err = flag.CommandLine.Parse(os.Args[1:]); err != nil {
-		panic(err)
-	}
-
-	logLevel := slog.LevelInfo
-	if config.Router.Debug {
-		logLevel = slog.LevelDebug
-	}
-
-	handler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		AddSource: true,
-		Level:     logLevel,
-	})
-
-	slogger := slog.New(handler)
-
-	router := NewRouterManager(config, handler)
-	cache := NewCacheManager(router)
-	cache.StartPolling(context.Background())
-
-	if config.Features.PortMapping {
-		go func() {
-			time.Sleep(2 * time.Second) // Wait for initial connection
-			res, err := router.RunArgs([]string{"/ip/firewall/filter/print"})
-			if err != nil {
-				return
-			}
-
-			found := false
-			for _, re := range res.Re {
-				action := re.Map["action"]
-				natState := re.Map["connection-nat-state"]
-				comment := strings.ToLower(re.Map["comment"])
-
-				// Pattern 1: Explicit accept for dstnat
-				if action == "accept" && natState == "dstnat" {
-					found = true
-					break
-				}
-				// Pattern 2: Drop all from WAN not DSTNATed (default config)
-				// The API usually returns negated values with a prefix or as a separate property,
-				// but often the comment is the most reliable indicator if the logic is complex.
-				// We also check for 'drop' and '!dstnat' if the API provides it that way.
-				if action == "drop" && (natState == "!dstnat" || strings.Contains(comment, "not dstnated")) {
-					found = true
-					break
-				}
-			}
-
-			if !found {
-				log.Println("WARNING: Port mapping feature enabled, but no global allow rule found for dstnat. Suggest running: /ip firewall filter add action=accept chain=forward connection-nat-state=dstnat comment=\"allow dstnat\"")
-			}
-		}()
-	}
-
+func newMux(config Config, router routerRunner, cache *CacheManager) *http.ServeMux {
 	mux := http.NewServeMux()
 
 	// Serve embedded static files (React build)
@@ -884,6 +803,96 @@ func main() {
 	})
 
 	mux.HandleFunc("/api/health", handleHealth(config, cache))
+	return mux
+}
+
+func main() {
+	viper.SetConfigName("config")
+	viper.SetConfigType("yaml")
+	viper.AddConfigPath(".")
+
+	viper.SetDefault("server.host", "0.0.0.0")
+	viper.SetDefault("server.port", 8080)
+	viper.SetDefault("router.host", "192.168.88.1")
+	viper.SetDefault("router.port", 8728)
+	viper.SetDefault("router.username", "admin")
+	viper.SetDefault("router.password", "")
+	viper.SetDefault("router.useTLS", false)
+	viper.SetDefault("features.portMapping", true)
+
+	if err := viper.ReadInConfig(); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
+			log.Println("No config file found, using defaults/env only")
+
+		} else {
+			log.Fatalf("Error reading config file: %s", err)
+			os.Exit(2)
+		}
+	}
+
+	var config Config
+	if err := viper.Unmarshal(&config); err != nil {
+		log.Fatalf("Unable to decode into struct: %v", err)
+		os.Exit(2)
+	}
+
+	var err error
+	if err = flag.CommandLine.Parse(os.Args[1:]); err != nil {
+		panic(err)
+	}
+
+	logLevel := slog.LevelInfo
+	if config.Router.Debug {
+		logLevel = slog.LevelDebug
+	}
+
+	handler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		AddSource: true,
+		Level:     logLevel,
+	})
+
+	slogger := slog.New(handler)
+
+	router := NewRouterManager(config, handler)
+	cache := NewCacheManager(router)
+	cache.StartPolling(context.Background())
+
+	if config.Features.PortMapping {
+		go func() {
+			time.Sleep(2 * time.Second) // Wait for initial connection
+			res, err := router.RunArgs([]string{"/ip/firewall/filter/print"})
+			if err != nil {
+				return
+			}
+
+			found := false
+			for _, re := range res.Re {
+				action := re.Map["action"]
+				natState := re.Map["connection-nat-state"]
+				comment := strings.ToLower(re.Map["comment"])
+
+				// Pattern 1: Explicit accept for dstnat
+				if action == "accept" && natState == "dstnat" {
+					found = true
+					break
+				}
+				// Pattern 2: Drop all from WAN not DSTNATed (default config)
+				// The API usually returns negated values with a prefix or as a separate property,
+				// but often the comment is the most reliable indicator if the logic is complex.
+				// We also check for 'drop' and '!dstnat' if the API provides it that way.
+				if action == "drop" && (natState == "!dstnat" || strings.Contains(comment, "not dstnated")) {
+					found = true
+					break
+				}
+			}
+
+			if !found {
+				log.Println("WARNING: Port mapping feature enabled, but no global allow rule found for dstnat. Suggest running: /ip firewall filter add action=accept chain=forward connection-nat-state=dstnat comment=\"allow dstnat\"")
+			}
+		}()
+	}
+
+	mux := newMux(config, router, cache)
 
 	log.Printf("Router Manager %s", Version)
 	log.Printf("Server listening on http://%s:%d", config.Server.Host, config.Server.Port)

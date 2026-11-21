@@ -781,9 +781,13 @@ func main() {
 				"?protocol=" + proto,
 				"?dst-port=" + extPort,
 			})
-			if err == nil && len(checkRes.Re) > 0 {
-				writeJSONError(w, http.StatusConflict, fmt.Sprintf("Port %s/%s is already mapped by another rule", extPort, proto))
-				return
+			if err == nil {
+				for _, re := range checkRes.Re {
+					if re.Map["disabled"] != "true" {
+						writeJSONError(w, http.StatusConflict, fmt.Sprintf("Port %s/%s is already mapped by another rule", extPort, proto))
+						return
+					}
+				}
 			}
 
 			_, err = router.RunArgs([]string{

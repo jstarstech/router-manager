@@ -290,7 +290,7 @@ func (c *CacheManager) GetIPInfo(userIP string) (map[string]string, string, bool
 	return lease, bridgePort, true
 }
 
-//go:embed frontend/dist
+//go:embed all:frontend/dist
 var staticFiles embed.FS
 
 var Version = "dev-build"

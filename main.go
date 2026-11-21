@@ -7,7 +7,6 @@ import (
 	"embed"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io/fs"
 	"log"
@@ -820,19 +819,12 @@ func main() {
 
 		} else {
 			log.Fatalf("Error reading config file: %s", err)
-			os.Exit(2)
 		}
 	}
 
 	var config Config
 	if err := viper.Unmarshal(&config); err != nil {
 		log.Fatalf("Unable to decode into struct: %v", err)
-		os.Exit(2)
-	}
-
-	var err error
-	if err = flag.CommandLine.Parse(os.Args[1:]); err != nil {
-		panic(err)
 	}
 
 	logLevel := slog.LevelInfo
@@ -901,7 +893,6 @@ func main() {
 	}
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		fatal(slogger, "Could not start server", err)
-		os.Exit(2)
 	}
 }
 

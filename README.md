@@ -75,9 +75,19 @@ docker run --name router-manager --restart unless-stopped -p 8080:8080 -v "$PWD/
 
 ### Reverse proxy
 
-> **Important:** if Router Manager is running behind a reverse proxy, forward
-> the original client IP with the `X-Forwarded-For` header. The app uses that IP
-> to find the matching DHCP lease and routing rule.
+> **Important:** if Router Manager is running behind a reverse proxy, list the
+> proxy address in `server.trustedProxies` and forward the original client IP
+> with the `X-Forwarded-For` header:
+>
+> ```yaml
+> server:
+>   trustedProxies:
+>     - 127.0.0.1
+> ```
+>
+> The app uses that IP to find the matching DHCP lease and routing rule. The
+> header is ignored unless the request comes from a trusted proxy, and only the
+> rightmost value added by your proxy is trusted.
 
 ## Usage
 

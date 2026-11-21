@@ -55,14 +55,35 @@ func TestRequestUserIP(t *testing.T) {
 			remoteAddr:     "127.0.0.1:54321",
 			xForwardedFor:  "203.0.113.5, 198.51.100.10",
 			trustedProxies: []string{"127.0.0.1"},
-			expected:       "203.0.113.5",
+			expected:       "198.51.100.10",
 		},
 		{
 			name:           "Whitespace in X-Forwarded-For",
 			remoteAddr:     "127.0.0.1:54321",
 			xForwardedFor:  "  10.10.10.10  , 192.168.1.1",
 			trustedProxies: []string{"127.0.0.1"},
-			expected:       "10.10.10.10",
+			expected:       "192.168.1.1",
+		},
+		{
+			name:           "Spoofed leftmost value is ignored",
+			remoteAddr:     "127.0.0.1:54321",
+			xForwardedFor:  "1.2.3.4, 192.168.99.50",
+			trustedProxies: []string{"127.0.0.1"},
+			expected:       "192.168.99.50",
+		},
+		{
+			name:           "Trusted proxies in the chain are skipped",
+			remoteAddr:     "127.0.0.1:54321",
+			xForwardedFor:  "1.2.3.4, 192.168.99.50, 127.0.0.1",
+			trustedProxies: []string{"127.0.0.1"},
+			expected:       "192.168.99.50",
+		},
+		{
+			name:           "Invalid X-Forwarded-For falls back to remote addr",
+			remoteAddr:     "127.0.0.1:54321",
+			xForwardedFor:  "not-an-ip",
+			trustedProxies: []string{"127.0.0.1"},
+			expected:       "127.0.0.1",
 		},
 	}
 

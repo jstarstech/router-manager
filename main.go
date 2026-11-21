@@ -332,25 +332,42 @@ func writeJSONError(w http.ResponseWriter, status int, message string) {
 	})
 }
 
+func isTrustedProxy(ip string, trustedProxies []string) bool {
+	for _, proxy := range trustedProxies {
+		if ip == proxy {
+			return true
+		}
+	}
+	return false
+}
+
 func requestUserIP(r *http.Request, trustedProxies []string) string {
 	remoteIP, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		remoteIP = r.RemoteAddr
 	}
 
-	trusted := false
-	for _, proxy := range trustedProxies {
-		if remoteIP == proxy {
-			trusted = true
-			break
-		}
+	if !isTrustedProxy(remoteIP, trustedProxies) {
+		return remoteIP
 	}
 
-	if trusted {
-		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			ips := strings.Split(xff, ",")
-			return strings.TrimSpace(ips[0])
+	xff := r.Header.Get("X-Forwarded-For")
+	if xff == "" {
+		return remoteIP
+	}
+
+	// Our proxies append addresses, so the first untrusted hop from the right
+	// is the real client. The leftmost value is client-supplied and spoofable.
+	ips := strings.Split(xff, ",")
+	for i := len(ips) - 1; i >= 0; i-- {
+		ip := strings.TrimSpace(ips[i])
+		if _, err := netip.ParseAddr(ip); err != nil {
+			continue
 		}
+		if isTrustedProxy(ip, trustedProxies) {
+			continue
+		}
+		return ip
 	}
 
 	return remoteIP

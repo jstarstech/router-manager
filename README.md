@@ -32,6 +32,8 @@ router:
   username: "admin"
   password: "your-routeros-password"
   useTLS: false
+  # insecureTLS: true          # skip certificate checks (explicit opt-in)
+  # caFile: /path/to/ca.crt    # trust a self-signed router certificate (CA)
   debug: false
 ```
 
@@ -40,7 +42,10 @@ router:
 - Developed and tested with RouterOS 7.x.
 - RouterOS API must be enabled on the target router.
 - Use port `8728` for plain RouterOS API or `8729` with `useTLS: true` when
-  using the TLS API.
+  using the TLS API. RouterOS usually presents a self-signed certificate, so
+  set either `insecureTLS: true` (no certificate validation) or `caFile` with
+  the router's certificate as the trusted CA. With `caFile` the chain and the
+  host name are still verified, so the certificate must match `router.host`.
 - The routing-rule UI expects an existing lookup rule where `src-address`
   matches the current client IP as `/32`.
 

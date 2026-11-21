@@ -2,8 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -208,6 +211,74 @@ func TestHandleHealth(t *testing.T) {
 
 		if status := rr.Code; status != http.StatusMethodNotAllowed {
 			t.Errorf("handler returned wrong status code for POST: got %v want %v", status, http.StatusMethodNotAllowed)
+		}
+	})
+}
+
+func TestBuildTLSConfig(t *testing.T) {
+	t.Run("Default verification", func(t *testing.T) {
+		cfg, err := buildTLSConfig(Config{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.InsecureSkipVerify {
+			t.Error("expected certificate verification to stay enabled")
+		}
+	})
+
+	t.Run("Insecure opt-in", func(t *testing.T) {
+		var c Config
+		c.Router.InsecureTLS = true
+		cfg, err := buildTLSConfig(c)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !cfg.InsecureSkipVerify || cfg.VerifyConnection != nil {
+			t.Error("expected plain insecure config")
+		}
+	})
+
+	t.Run("Missing caFile", func(t *testing.T) {
+		var c Config
+		c.Router.CAFile = filepath.Join(t.TempDir(), "missing.crt")
+		if _, err := buildTLSConfig(c); err == nil {
+			t.Error("expected error for missing caFile")
+		}
+	})
+
+	t.Run("Invalid PEM", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "bad.crt")
+		if err := os.WriteFile(path, []byte("not a certificate"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		var c Config
+		c.Router.CAFile = path
+		if _, err := buildTLSConfig(c); err == nil {
+			t.Error("expected error for PEM without certificates")
+		}
+	})
+
+	t.Run("CA file keeps verification", func(t *testing.T) {
+		server := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+		defer server.Close()
+
+		path := filepath.Join(t.TempDir(), "ca.crt")
+		pemData := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
+		if err := os.WriteFile(path, pemData, 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		var c Config
+		c.Router.CAFile = path
+		cfg, err := buildTLSConfig(c)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.InsecureSkipVerify {
+			t.Error("expected hostname verification to stay enabled with caFile")
+		}
+		if cfg.RootCAs == nil {
+			t.Error("expected caFile to populate RootCAs")
 		}
 	})
 }

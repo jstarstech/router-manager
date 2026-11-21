@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"embed"
 	"encoding/json"
 	"flag"
@@ -30,12 +32,14 @@ type Config struct {
 		TrustedProxies []string `mapstructure:"trustedProxies"`
 	} `mapstructure:"server"`
 	Router struct {
-		Host     string `mapstructure:"host"`
-		Port     int    `mapstructure:"port"`
-		Username string `mapstructure:"username"`
-		Password string `mapstructure:"password"`
-		UseTLS   bool   `mapstructure:"useTLS"`
-		Debug    bool   `mapstructure:"debug"`
+		Host        string `mapstructure:"host"`
+		Port        int    `mapstructure:"port"`
+		Username    string `mapstructure:"username"`
+		Password    string `mapstructure:"password"`
+		UseTLS      bool   `mapstructure:"useTLS"`
+		InsecureTLS bool   `mapstructure:"insecureTLS"`
+		CAFile      string `mapstructure:"caFile"`
+		Debug       bool   `mapstructure:"debug"`
 	} `mapstructure:"router"`
 	Features struct {
 		PortMapping bool `mapstructure:"portMapping"`
@@ -119,9 +123,9 @@ type CacheManager struct {
 	router *RouterManager
 	mu     sync.RWMutex
 
-	Connected    bool
-	Health       map[string]string
-	Leases       []map[string]string
+	Connected     bool
+	Health        map[string]string
+	Leases        []map[string]string
 	RoutingTables []map[string]string
 	RoutingRules  []map[string]string
 	BridgeHosts   map[string]string // MAC -> Interface
@@ -281,10 +285,33 @@ func dial(config Config) (*routeros.Client, error) {
 	defer cancel()
 
 	if config.Router.UseTLS {
-		return routeros.DialTLSContext(ctx, address, config.Router.Username, config.Router.Password, nil)
+		tlsConfig, err := buildTLSConfig(config)
+		if err != nil {
+			return nil, err
+		}
+		return routeros.DialTLSContext(ctx, address, config.Router.Username, config.Router.Password, tlsConfig)
 	}
 
 	return routeros.DialContext(ctx, address, config.Router.Username, config.Router.Password)
+}
+
+func buildTLSConfig(config Config) (*tls.Config, error) {
+	tlsConfig := &tls.Config{}
+	if config.Router.CAFile == "" {
+		tlsConfig.InsecureSkipVerify = config.Router.InsecureTLS //nolint:gosec // explicit opt-in
+		return tlsConfig, nil
+	}
+
+	pemData, err := os.ReadFile(config.Router.CAFile)
+	if err != nil {
+		return nil, fmt.Errorf("read caFile: %w", err)
+	}
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(pemData) {
+		return nil, fmt.Errorf("caFile %q contains no PEM certificates", config.Router.CAFile)
+	}
+	tlsConfig.RootCAs = roots
+	return tlsConfig, nil
 }
 
 func fatal(log *slog.Logger, message string, err error) {
@@ -744,7 +771,7 @@ func main() {
 
 			if comment, ok := data["comment"]; ok {
 				trimmedComment := strings.TrimSpace(comment)
-				// If the user tries to save an entirely empty comment after trimming, 
+				// If the user tries to save an entirely empty comment after trimming,
 				// we could either allow it (empty string in mikrotik) or reset to default.
 				// Since RouterOS allows empty comments, we will pass the trimmed string.
 				_, err = router.RunArgs([]string{"/ip/firewall/nat/set", "=.id=" + id, "=comment=" + trimmedComment})

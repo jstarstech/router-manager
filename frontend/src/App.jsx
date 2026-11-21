@@ -642,17 +642,25 @@ function IPRuleTable({ isConnected }) {
     if (!isConnected) return;
     const value = e.target.value;
 
-    const res = await fetchJSON("/api/ip-rule", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ table: value, ".id": resRule?.data?.[".id"] }),
-    });
+    try {
+      const res = await fetchJSON("/api/ip-rule", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ table: value, ".id": resRule?.data?.[".id"] }),
+      });
 
-    if (res.status === "ok") {
-      setSelectedTable(value);
+      if (res.status === "ok") {
+        setSelectedTable(value);
+        return;
+      }
+      alert(res.message || "Failed to change the routing table");
+    } catch (error) {
+      alert(error.message);
     }
+
+    e.target.value = resRule?.data?.table || "";
   };
 
   if (resRule?.status === "ok" && resRule?.data && resRule.data?.table) {
